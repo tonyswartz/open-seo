@@ -12,6 +12,7 @@ import {
 } from "vitest";
 import { rankTrackingConfigs } from "@/db/schema";
 import type * as RankTrackingRepositoryModule from "./RankTrackingRepository";
+import type * as DeleteConfigCascadeModule from "./deleteConfigCascade";
 
 // Real in-memory SQLite so the due-query ordering, the manual-interval filter,
 // and claimDueConfig's compare-and-set run against actual SQL — the parts the
@@ -24,6 +25,7 @@ vi.mock("cloudflare:workers", () => ({
 let client: Client;
 let testDb: ReturnType<typeof drizzle>;
 let RankTrackingRepository: typeof RankTrackingRepositoryModule.RankTrackingRepository;
+let deleteConfigCascade: typeof DeleteConfigCascadeModule.deleteConfigCascade;
 
 beforeAll(async () => {
   client = createClient({ url: "file::memory:" });
@@ -66,9 +68,50 @@ beforeAll(async () => {
       cpc REAL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE rank_check_runs (
+      id TEXT PRIMARY KEY,
+      config_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      keywords_total INTEGER NOT NULL DEFAULT 0,
+      keywords_checked INTEGER NOT NULL DEFAULT 0,
+      is_subset_run INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    );
+    CREATE TABLE rank_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      tracking_keyword_id TEXT NOT NULL,
+      keyword TEXT NOT NULL,
+      device TEXT NOT NULL,
+      position INTEGER,
+      url TEXT,
+      serp_features TEXT,
+      checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
+  // No FK clauses above — deliberate. deleteConfigCascade must remove children
+  // itself; this harness would keep orphans alive if it leaned on cascades.
+  // Production runBatch targets the real d1/pg clients, not the mocked "@/db",
+  // so route its batched statements at the in-memory db too.
+  vi.doMock("@/db/runBatch", () => ({
+    DB_BATCH_SIZE: 100,
+    runBatch: async (build: (tx: unknown) => readonly Promise<unknown>[]) => {
+      for (const statement of build(testDb)) await statement;
+    },
+    executeInBatches: async (
+      items: unknown[],
+      buildStatement: (tx: unknown, item: unknown) => Promise<unknown>,
+    ) => {
+      for (const item of items) await buildStatement(testDb, item);
+    },
+  }));
+
   ({ RankTrackingRepository } = await import("./RankTrackingRepository"));
+  ({ deleteConfigCascade } = await import("./deleteConfigCascade"));
 });
 
 afterAll(() => {
@@ -77,6 +120,8 @@ afterAll(() => {
 
 beforeEach(async () => {
   await client.executeMultiple(`
+    DELETE FROM rank_snapshots;
+    DELETE FROM rank_check_runs;
     DELETE FROM rank_tracking_keywords;
     DELETE FROM rank_tracking_configs;
     DELETE FROM projects;
@@ -274,5 +319,41 @@ describe("getKeywordCountsForConfigs", () => {
     expect(await RankTrackingRepository.getKeywordCountsForConfigs([])).toEqual(
       new Map(),
     );
+  });
+});
+
+describe("deleteConfigCascade", () => {
+  it("removes the config with its keywords, runs, and snapshots, leaving other configs intact", async () => {
+    await seedProject("proj_1");
+    await seedConfig({ id: "cfg_doomed" });
+    await seedConfig({ id: "cfg_kept" });
+    await client.executeMultiple(`
+      INSERT INTO rank_tracking_keywords (id, config_id, keyword) VALUES
+        ('kw_doomed', 'cfg_doomed', 'doomed kw'),
+        ('kw_kept', 'cfg_kept', 'kept kw');
+      INSERT INTO rank_check_runs (id, config_id, project_id, status) VALUES
+        ('run_doomed', 'cfg_doomed', 'proj_1', 'completed'),
+        ('run_kept', 'cfg_kept', 'proj_1', 'completed');
+      INSERT INTO rank_snapshots (run_id, tracking_keyword_id, keyword, device) VALUES
+        ('run_doomed', 'kw_doomed', 'doomed kw', 'desktop'),
+        ('run_kept', 'kw_kept', 'kept kw', 'desktop');
+    `);
+
+    await deleteConfigCascade("cfg_doomed");
+
+    const remaining = async (sql: string) =>
+      (await client.execute(sql)).rows.map((row) => row[0]);
+    expect(await remaining("SELECT id FROM rank_tracking_configs")).toEqual([
+      "cfg_kept",
+    ]);
+    expect(await remaining("SELECT id FROM rank_tracking_keywords")).toEqual([
+      "kw_kept",
+    ]);
+    expect(await remaining("SELECT id FROM rank_check_runs")).toEqual([
+      "run_kept",
+    ]);
+    expect(await remaining("SELECT run_id FROM rank_snapshots")).toEqual([
+      "run_kept",
+    ]);
   });
 });

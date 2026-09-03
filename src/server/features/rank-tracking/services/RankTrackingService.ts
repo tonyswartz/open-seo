@@ -8,6 +8,7 @@ import {
   fetchKeywordMetricsForList,
 } from "@/server/lib/dataforseo";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { deleteConfigCascade } from "@/server/features/rank-tracking/repositories/deleteConfigCascade";
 import { AppError } from "@/server/lib/errors";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import type {
@@ -170,6 +171,28 @@ async function updateConfig(
   }
 
   await RankTrackingRepository.updateConfig(configId, projectId, updates);
+}
+
+async function deleteTracker(configId: string, projectId: string) {
+  const config = await getValidatedConfig(configId, projectId);
+
+  const activeRun =
+    await RankTrackingRepository.getActiveRunForConfig(configId);
+  if (activeRun && !(await reconcileActiveRankCheckRun(activeRun))) {
+    // Genuinely in flight (or within the startup grace window) — deleting now
+    // would yank rows out from under the running workflow. A non-null
+    // reconciliation means the workflow instance is gone; that stale run row
+    // is swept up by the cascade below.
+    throw new AppError(
+      "CONFLICT",
+      "A rank check is currently running for this tracker. Wait for it to finish, then delete.",
+    );
+  }
+
+  const keywordCount =
+    await RankTrackingRepository.getKeywordCountForConfig(configId);
+  await deleteConfigCascade(configId);
+  return { config, keywordCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +405,7 @@ function formatRun(
 export const RankTrackingService = {
   createConfig,
   updateConfig,
+  deleteTracker,
   addKeywords: RankTrackingKeywordService.addKeywords,
   removeKeywords: RankTrackingKeywordService.removeKeywords,
   triggerCheck,

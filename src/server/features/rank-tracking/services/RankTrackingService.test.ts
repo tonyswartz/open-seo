@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   getConfigsForProject: vi.fn(),
   createConfig: vi.fn(),
   updateConfig: vi.fn(),
+  getActiveRunForConfig: vi.fn(),
+  getKeywordCountForConfig: vi.fn(),
+  deleteConfigCascade: vi.fn(),
+  reconcileActiveRankCheckRun: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -15,6 +19,14 @@ vi.mock("@/server/lib/dataforseo", () => ({ createDataforseoClient: vi.fn() }));
 vi.mock(
   "@/server/features/rank-tracking/repositories/RankTrackingRepository",
   () => ({ RankTrackingRepository: mocks }),
+);
+vi.mock("./rankCheckRunGuards", () => ({
+  beginRankCheckRun: vi.fn(),
+  reconcileActiveRankCheckRun: mocks.reconcileActiveRankCheckRun,
+}));
+vi.mock(
+  "@/server/features/rank-tracking/repositories/deleteConfigCascade",
+  () => ({ deleteConfigCascade: mocks.deleteConfigCascade }),
 );
 
 const archivedConfig = {
@@ -197,5 +209,53 @@ describe("RankTrackingService.createConfig", () => {
     expect(mocks.createConfig).toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2276, languageCode: "de" }),
     );
+  });
+});
+
+describe("RankTrackingService.deleteTracker", () => {
+  const trackerConfig = {
+    id: "config_1",
+    projectId: "project_1",
+    domain: "acme.com",
+    locationCode: 2840,
+    languageCode: "en",
+    locationName: null,
+    devices: "both" as const,
+    serpDepth: 20,
+    scheduleInterval: "weekly" as const,
+    isActive: true,
+  };
+
+  it("refuses while a rank check is genuinely in flight", async () => {
+    mocks.getConfigById.mockResolvedValue(trackerConfig);
+    mocks.getActiveRunForConfig.mockResolvedValue({
+      id: "run_1",
+      status: "running",
+    });
+    mocks.reconcileActiveRankCheckRun.mockResolvedValue(null);
+
+    await expect(
+      RankTrackingService.deleteTracker("config_1", "project_1"),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(mocks.deleteConfigCascade).not.toHaveBeenCalled();
+  });
+
+  it("deletes when the only active-looking run is stale, reporting the keyword count", async () => {
+    mocks.getConfigById.mockResolvedValue(trackerConfig);
+    mocks.getActiveRunForConfig.mockResolvedValue({
+      id: "run_1",
+      status: "running",
+    });
+    mocks.reconcileActiveRankCheckRun.mockResolvedValue({
+      errorMessage: "Rank check workflow instance no longer exists",
+      completedAt: "2026-08-01T12:00:00.000Z",
+    });
+    mocks.getKeywordCountForConfig.mockResolvedValue(3);
+    mocks.deleteConfigCascade.mockResolvedValue(undefined);
+
+    await expect(
+      RankTrackingService.deleteTracker("config_1", "project_1"),
+    ).resolves.toEqual({ config: trackerConfig, keywordCount: 3 });
+    expect(mocks.deleteConfigCascade).toHaveBeenCalledWith("config_1");
   });
 });
