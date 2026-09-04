@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { addRankTrackingKeywordsTool } from "./add-rank-tracking-keywords";
 import { createRankTrackerTool } from "./create-rank-tracker";
+import { deleteRankTrackerTool } from "./delete-rank-tracker";
 import { estimateRankTrackerCostTool } from "./estimate-rank-tracker-cost";
 import { removeRankTrackingKeywordsTool } from "./remove-rank-tracking-keywords";
 import { runRankTrackerTool } from "./run-rank-tracker";
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getTracker: vi.fn(),
   addKeywords: vi.fn(),
   removeKeywords: vi.fn(),
+  deleteTracker: vi.fn(),
   estimateCost: vi.fn(),
   triggerCheck: vi.fn(),
   captureServerEvent: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock("@/server/features/rank-tracking/services/RankTrackingService", () => ({
     getTracker: mocks.getTracker,
     addKeywords: mocks.addKeywords,
     removeKeywords: mocks.removeKeywords,
+    deleteTracker: mocks.deleteTracker,
     estimateCost: mocks.estimateCost,
     triggerCheck: mocks.triggerCheck,
   },
@@ -176,6 +179,30 @@ describe("rank tracking management MCP tools", () => {
       requested: 2,
       removed: 1,
       removedIds: [keywordId],
+    });
+  });
+
+  it("deletes a tracker and reports what was removed", async () => {
+    mocks.deleteTracker.mockResolvedValue({
+      config: { ...createdConfig, locationName: "Ellensburg, Washington" },
+      keywordCount: 4,
+    });
+
+    const result = await deleteRankTrackerTool.handler(
+      { projectId, trackerId },
+      toolContext,
+    );
+
+    expect(mocks.deleteTracker).toHaveBeenCalledWith(trackerId, projectId);
+    expect(textContent(result)).toContain(
+      `Deleted rank tracker ${trackerId} (openseo.so, Ellensburg, Washington)`,
+    );
+    expect(textContent(result)).toContain("4 tracked keywords");
+    expect(result.structuredContent).toMatchObject({
+      trackerId,
+      domain: "openseo.so",
+      locationName: "Ellensburg, Washington",
+      keywordsDeleted: 4,
     });
   });
 

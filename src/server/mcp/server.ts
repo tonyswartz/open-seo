@@ -17,6 +17,7 @@ import { getDomainKeywordSuggestionsTool } from "@/server/mcp/tools/get-domain-k
 import { getDomainOverviewTool } from "@/server/mcp/tools/get-domain-overview";
 import { addRankTrackingKeywordsTool } from "@/server/mcp/tools/add-rank-tracking-keywords";
 import { createRankTrackerTool } from "@/server/mcp/tools/create-rank-tracker";
+import { deleteRankTrackerTool } from "@/server/mcp/tools/delete-rank-tracker";
 import { estimateRankTrackerCostTool } from "@/server/mcp/tools/estimate-rank-tracker-cost";
 import { getRankTrackerTool } from "@/server/mcp/tools/get-rank-tracker";
 import { removeRankTrackingKeywordsTool } from "@/server/mcp/tools/remove-rank-tracking-keywords";
@@ -174,6 +175,7 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
   register(getRankTrackerTool);
   register(addRankTrackingKeywordsTool);
   register(removeRankTrackingKeywordsTool);
+  register(deleteRankTrackerTool);
   register(estimateRankTrackerCostTool);
   register(runRankTrackerTool);
   register(getRankedKeywordsTool);
