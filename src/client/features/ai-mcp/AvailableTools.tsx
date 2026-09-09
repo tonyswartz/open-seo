@@ -189,6 +189,23 @@ const toolCategories: ToolCategory[] = [
     ],
   },
   {
+    label: "Local Services Ads",
+    tools: [
+      {
+        name: "get_local_services_performance",
+        title: "Get Local Services performance",
+        description:
+          "Read LSA spend, lead totals, cost per lead, and budget pacing.",
+      },
+      {
+        name: "get_local_services_leads",
+        title: "List Local Services leads",
+        description:
+          "List LSA leads with type, status, charged state, and contact info.",
+      },
+    ],
+  },
+  {
     label: "Google Analytics",
     tools: [
       {
