@@ -66,6 +66,8 @@ export function GoogleAdsAccountPicker({
   const accessPending = grants.some((grant) => grant.accessPending);
   const requiresReconnect = grants.some((grant) => grant.requiresReconnect);
   const accountsUnavailable = grants.some((grant) => grant.accountsUnavailable);
+  const connectedEmail =
+    grants.map((grant) => grant.email).find(Boolean) ?? null;
   const candidates = grants.flatMap((grant) =>
     grant.accounts.map((candidate) => ({ grant, candidate })),
   );
@@ -143,7 +145,7 @@ export function GoogleAdsAccountPicker({
       ) : !accessPending && !requiresReconnect ? (
         <div className="space-y-2">
           <p className="text-base-content/70">
-            No Google Ads accounts found on the connected Google account.
+            {`No Google Ads accounts found on the connected Google account${connectedEmail ? ` (${connectedEmail})` : ""}.`}
             {accountsUnavailable
               ? " This usually means the Google Ads permission was left unchecked on Google's consent screen."
               : " If this is the wrong Google account, reconnect and pick another."}
