@@ -49,19 +49,32 @@ export function GoogleAdsConnectionCard({ projectId }: { projectId: string }) {
     [accountsQuery.data?.accounts],
   );
 
+  // Keep the selection reconciled with what the picker is actually offering.
+  // A refetch can drop the account the user had selected (permission revoked,
+  // renamed, moved managers); leaving the stale pick in place lets "Use this
+  // account" save a customer the list no longer contains.
   React.useEffect(() => {
-    if (selection) return;
-    for (const grant of grants) {
-      const selected = grant.accounts.find((candidate) => candidate.isSelected);
-      if (selected) {
-        setSelection({
-          accountId: grant.accountId,
-          customerId: selected.customerId,
-        });
-        return;
-      }
-    }
-  }, [grants, selection]);
+    if (!accountsQuery.data) return;
+    const offered = grants.flatMap((grant) =>
+      grant.accounts.map((candidate) => ({ grant, candidate })),
+    );
+    const stillOffered = offered.some(
+      ({ grant, candidate }) =>
+        grant.accountId === selection?.accountId &&
+        candidate.customerId === selection.customerId,
+    );
+    if (stillOffered) return;
+    const marked = offered.find(({ candidate }) => candidate.isSelected);
+    setSelection(
+      marked
+        ? {
+            accountId: marked.grant.accountId,
+            customerId: marked.candidate.customerId,
+            loginCustomerId: marked.candidate.loginCustomerId,
+          }
+        : null,
+    );
+  }, [accountsQuery.data, grants, selection]);
 
   const invalidateConnectionState = () => {
     void queryClient.invalidateQueries({ queryKey: connectionKey });

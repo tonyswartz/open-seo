@@ -136,11 +136,15 @@ async function hasLocalServicesCampaigns(
  *  manager, each probed for Local Services campaigns. A failure on a single
  *  account is logged and skipped — unless nothing survives, in which case the
  *  first failure is rethrown so the caller classifies a real access problem
- *  instead of reporting a (misleading) empty account list. */
+ *  instead of reporting a (misleading) empty account list.
+ *
+ *  `truncated` reports that a discovery bound was hit, so the picker can say
+ *  the list is partial rather than letting an account the user is looking for
+ *  simply not be there. */
 async function listAccountsForGrant(input: {
   userId: string;
   googleAdsAccountId: string;
-}): Promise<GoogleAdsAccountCandidate[]> {
+}): Promise<{ accounts: GoogleAdsAccountCandidate[]; truncated: boolean }> {
   const client = createGoogleAdsClient(input);
   const allAccessible = await client.listAccessibleCustomers();
   const accessible = allAccessible.slice(0, MAX_ACCESSIBLE_CUSTOMERS);
@@ -216,7 +220,21 @@ async function listAccountsForGrant(input: {
       });
     }
   }
-  const bounded = candidates.slice(0, MAX_CANDIDATE_ACCOUNTS);
+  // One customer can arrive twice — reachable through two managers, or both
+  // directly and under a manager. Same account either way, so keep one entry,
+  // preferring the direct route (it needs no login-customer-id header).
+  const unique = new Map<string, GoogleAdsAccountCandidate>();
+  for (const candidate of candidates) {
+    const existing = unique.get(candidate.customerId);
+    if (!existing || (existing.loginCustomerId && !candidate.loginCustomerId)) {
+      unique.set(candidate.customerId, candidate);
+    }
+  }
+  const deduped = [...unique.values()];
+  const bounded = deduped.slice(0, MAX_CANDIDATE_ACCOUNTS);
+  const truncated =
+    allAccessible.length > MAX_ACCESSIBLE_CUSTOMERS ||
+    deduped.length > MAX_CANDIDATE_ACCOUNTS;
   if (bounded.length === 0 && skipErrors.length > 0) {
     throw skipErrors[0];
   }
@@ -236,9 +254,11 @@ async function listAccountsForGrant(input: {
   console.info("google_ads.account_discovery", {
     accessible: accessible.length,
     candidates: bounded.length,
+    duplicatesDropped: candidates.length - deduped.length,
     skipped: skipErrors.length,
+    truncated,
   });
-  return bounded;
+  return { accounts: bounded, truncated };
 }
 
 async function listAccountsForUserWithGrantStatus(userId: string) {
@@ -254,7 +274,7 @@ async function listAccountsForUserWithGrantStatus(userId: string) {
         googleAdsAccountId: grant.accountId,
       });
       try {
-        const candidates = await listAccountsForGrant({
+        const discovered = await listAccountsForGrant({
           userId,
           googleAdsAccountId: grant.accountId,
         });
@@ -269,14 +289,19 @@ async function listAccountsForUserWithGrantStatus(userId: string) {
           email,
           requiresReconnect: false,
           accessPending: false,
+          setupRequired: false,
           accountsUnavailable: false,
-          accounts: candidates,
+          truncated: discovered.truncated,
+          accounts: discovered.accounts,
         };
       } catch (error) {
         const reconnect = requiresReconnect(error);
-        const pending =
-          accessPending(error) || error instanceof GoogleAdsConfigError;
-        if (!reconnect && !pending) {
+        const pending = accessPending(error);
+        // A missing developer token is this deployment's own setup gap, not
+        // Google taking its time on approval. Same empty picker, but the two
+        // need different copy or the self-hoster waits for nothing.
+        const setupRequired = error instanceof GoogleAdsConfigError;
+        if (!reconnect && !pending && !setupRequired) {
           console.error(
             "google_ads.account_discovery_failed",
             errorLogDetails(error),
@@ -287,7 +312,9 @@ async function listAccountsForUserWithGrantStatus(userId: string) {
           email: null,
           requiresReconnect: reconnect,
           accessPending: pending,
-          accountsUnavailable: !reconnect && !pending,
+          setupRequired,
+          accountsUnavailable: !reconnect && !pending && !setupRequired,
+          truncated: false,
           accounts: [],
         };
       }
@@ -296,11 +323,63 @@ async function listAccountsForUserWithGrantStatus(userId: string) {
   return { accounts };
 }
 
+const accountUnavailable = () =>
+  new AppError(
+    "NOT_FOUND",
+    "That Google Ads account isn't available on your connected Google account.",
+  );
+
+/** Confirm the one account the user picked, rather than re-running discovery
+ *  to look it up. Discovery fans out over every accessible customer, so a blip
+ *  on an unrelated account could reject the account they had just chosen from
+ *  a list that was right in front of them.
+ *
+ *  `loginCustomerId` arrives from the client, so it is checked against the
+ *  managers this grant can actually reach before it is used as a header or
+ *  stored — and the reporting fields come from Google's answer, never the
+ *  request. */
+async function verifyAccountForGrant(input: {
+  userId: string;
+  googleAdsAccountId: string;
+  customerId: string;
+  loginCustomerId: string | null;
+}): Promise<GoogleAdsAccountCandidate> {
+  const client = createGoogleAdsClient({
+    userId: input.userId,
+    googleAdsAccountId: input.googleAdsAccountId,
+  });
+  const accessible = await client.listAccessibleCustomers();
+  // Either the manager the account hangs off, or the account itself when the
+  // grant reaches it directly.
+  if (!accessible.includes(input.loginCustomerId ?? input.customerId)) {
+    throw accountUnavailable();
+  }
+  const rows = await client.search(
+    input.customerId,
+    `SELECT customer.id, customer.descriptive_name, customer.manager, customer.currency_code FROM customer`,
+    { loginCustomerId: input.loginCustomerId },
+  );
+  const customer = rows[0] ? customerRowSchema.parse(rows[0]).customer : null;
+  // Managers hold no campaigns of their own; discovery expands them instead of
+  // offering them, so one arriving here is a stale or hand-made selection.
+  if (!customer || customer.id !== input.customerId || customer.manager) {
+    throw accountUnavailable();
+  }
+  return {
+    customerId: customer.id,
+    loginCustomerId: input.loginCustomerId,
+    descriptiveName: customer.descriptiveName ?? null,
+    currencyCode: customer.currencyCode ?? null,
+    hasLocalServicesCampaigns: false,
+  };
+}
+
 async function setAccount(input: {
   projectId: string;
   organizationId: string;
   accountId: string;
   customerId: string;
+  loginCustomerId: string | null;
   userId: string;
 }): Promise<GoogleAdsConnection> {
   if (!(await grantExists(input.userId, input.accountId))) {
@@ -309,19 +388,12 @@ async function setAccount(input: {
       "That Google account isn't connected to your OpenSEO account.",
     );
   }
-  const candidates = await listAccountsForGrant({
+  const candidate = await verifyAccountForGrant({
     userId: input.userId,
     googleAdsAccountId: input.accountId,
+    customerId: input.customerId,
+    loginCustomerId: input.loginCustomerId,
   });
-  const candidate = candidates.find(
-    (entry) => entry.customerId === input.customerId,
-  );
-  if (!candidate) {
-    throw new AppError(
-      "NOT_FOUND",
-      "That Google Ads account isn't available on your connected Google account.",
-    );
-  }
 
   const client = createGoogleAdsClient({
     userId: input.userId,
@@ -345,7 +417,7 @@ async function setAccount(input: {
     googleAdsAccountId: input.accountId,
     connectedAccountEmail,
   });
-  // Discovery above is several Google round trips long. Disconnecting another
+  // Verification above is a couple of Google round trips. Disconnecting another
   // project that shares this Google login releases the grant, so it can vanish
   // inside that window — leaving a saved connection whose refresh token is
   // already gone. Undo rather than store a dead link.
