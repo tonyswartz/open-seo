@@ -55,6 +55,7 @@ import { saveKeywordsTool } from "@/server/mcp/tools/save-keywords";
 import {
   getLocalServicesLeadsTool,
   getLocalServicesPerformanceTool,
+  provideLeadFeedbackTool,
 } from "@/server/mcp/tools/local-services-tools";
 import {
   getSearchConsolePerformanceTool,
@@ -375,6 +376,7 @@ export function buildSamMcpTools(
     inspect_urls: adaptTool(inspectUrlsTool),
     get_local_services_performance: adaptTool(getLocalServicesPerformanceTool),
     get_local_services_leads: adaptTool(getLocalServicesLeadsTool),
+    provide_lead_feedback: adaptTool(provideLeadFeedbackTool),
     // Unconditional like the MCP server's registrations — the GA4 launch gate
     // was removed in #505.
     get_google_analytics_organic_landing_pages: adaptObjectTool(

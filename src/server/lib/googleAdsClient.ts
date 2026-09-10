@@ -119,10 +119,26 @@ type GoogleAdsSearchOptions = {
   loginCustomerId?: string | null;
 };
 
-/** Read-only Google Ads API client. Only issues googleAds:search report
- *  requests (plus OAuth userinfo); nothing here mutates campaigns. Access
- *  tokens are minted (and auto-refreshed) by Better Auth from the connector's
- *  stored google-ads grant. */
+const provideLeadFeedbackResponseSchema = z.object({
+  creditIssuanceDecision: z.string(),
+});
+
+export type ProvideLeadFeedbackBody = {
+  surveyAnswer: string;
+  surveyDissatisfied?: {
+    surveyDissatisfiedReason: string;
+    otherReasonComment?: string;
+  };
+  surveySatisfied?: {
+    surveySatisfiedReason: string;
+    otherReasonComment?: string;
+  };
+};
+
+/** Google Ads API client. Issues googleAds:search report requests, OAuth
+ *  userinfo, and the one lead-feedback mutation (ProvideLeadFeedback). Nothing
+ *  here mutates campaigns or budgets. Access tokens are minted (and
+ *  auto-refreshed) by Better Auth from the connector's stored google-ads grant. */
 export function createGoogleAdsClient(opts: {
   userId: string;
   googleAdsAccountId: string;
@@ -234,6 +250,24 @@ export function createGoogleAdsClient(opts: {
         if (!pageToken) break;
       }
       return rows;
+    },
+
+    /** `LocalServicesLeadService.ProvideLeadFeedback` — live, irreversible,
+     *  once per lead. There is no validate_only on the v25 request. */
+    async provideLeadFeedback(
+      customerId: string,
+      leadId: string,
+      body: ProvideLeadFeedbackBody,
+      options?: GoogleAdsSearchOptions,
+    ): Promise<{ creditIssuanceDecision: string }> {
+      const resourceName = `customers/${customerId}/localServicesLeads/${leadId}`;
+      const data = await request({
+        url: `${GOOGLE_ADS_API_BASE}/customers/${encodeURIComponent(customerId)}/localServicesLeads/${encodeURIComponent(leadId)}:provideLeadFeedback`,
+        schema: provideLeadFeedbackResponseSchema,
+        body: { resourceName, ...body },
+        loginCustomerId: options?.loginCustomerId,
+      });
+      return { creditIssuanceDecision: data.creditIssuanceDecision };
     },
   };
 }

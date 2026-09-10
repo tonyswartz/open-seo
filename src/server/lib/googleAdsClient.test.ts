@@ -88,4 +88,36 @@ describe("createGoogleAdsClient", () => {
         "The following field may not be used in SELECT clause: 'local_services_lead.credit_details'.",
     });
   });
+
+  it("POSTs ProvideLeadFeedback to the v25 resource URL", async () => {
+    mocks.fetch.mockResolvedValue(
+      Response.json({ creditIssuanceDecision: "FAIL_NOT_ELIGIBLE" }),
+    );
+
+    const result = await client().provideLeadFeedback(
+      "2932843684",
+      "338539166",
+      {
+        surveyAnswer: "VERY_DISSATISFIED",
+        surveyDissatisfied: { surveyDissatisfiedReason: "JOB_TYPE_MISMATCH" },
+      },
+      { loginCustomerId: null },
+    );
+
+    expect(result).toEqual({ creditIssuanceDecision: "FAIL_NOT_ELIGIBLE" });
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mocks.fetch.mock.calls[0];
+    expect(url).toBe(
+      "https://googleads.googleapis.com/v25/customers/2932843684/localServicesLeads/338539166:provideLeadFeedback",
+    );
+    expect(init?.method).toBe("POST");
+    expect(typeof init?.body).toBe("string");
+    expect(
+      JSON.parse(typeof init?.body === "string" ? init.body : "{}"),
+    ).toEqual({
+      resourceName: "customers/2932843684/localServicesLeads/338539166",
+      surveyAnswer: "VERY_DISSATISFIED",
+      surveyDissatisfied: { surveyDissatisfiedReason: "JOB_TYPE_MISMATCH" },
+    });
+  });
 });
