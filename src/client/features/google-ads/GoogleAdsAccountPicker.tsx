@@ -85,8 +85,9 @@ export function GoogleAdsAccountPicker({
         <div className="alert alert-warning items-start text-sm">
           <p>
             Google Ads API access is still pending on Google&apos;s side
-            (developer token approval or API enablement). Account listing will
-            work once Google finishes onboarding — no changes needed here.
+            (developer token approval or API enablement). Until Google approves
+            it, OpenSEO can&apos;t read your Ads accounts, so they&apos;ll
+            appear here once onboarding finishes — no changes needed here.
           </p>
         </div>
       ) : null}

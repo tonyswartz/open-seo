@@ -17,7 +17,7 @@ vi.mock("@/server/lib/runtime-env", () => ({
 const client = () =>
   createGoogleAdsClient({ userId: "user_1", googleAdsAccountId: "account_1" });
 
-describe("createGoogleAdsClient access token", () => {
+describe("createGoogleAdsClient", () => {
   beforeEach(() => {
     mocks.getAccessToken.mockResolvedValue({ accessToken: "ads_tok" });
     // A fresh Response per call: a body can only be read once.
@@ -51,5 +51,41 @@ describe("createGoogleAdsClient access token", () => {
     await expect(ads.listAccessibleCustomers()).resolves.toEqual([
       "1234567890",
     ]);
+  });
+
+  it("keeps Google's own error message alongside the generic one", async () => {
+    // The real v25 failure behind PR #9, which reached users only as "Google
+    // Ads API error (400)" with Google's explanation thrown away.
+    mocks.fetch.mockResolvedValue(
+      Response.json(
+        {
+          error: {
+            code: 400,
+            message: "Request contains an invalid argument.",
+            status: "INVALID_ARGUMENT",
+            details: [
+              {
+                errors: [
+                  {
+                    errorCode: {
+                      queryError: "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+                    },
+                    message:
+                      "The following field may not be used in SELECT clause: 'local_services_lead.credit_details'.",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { status: 400 },
+      ),
+    );
+    await expect(client().listAccessibleCustomers()).rejects.toMatchObject({
+      message: "Google Ads API error (400).",
+      upstreamReason: "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+      upstreamMessage:
+        "The following field may not be used in SELECT clause: 'local_services_lead.credit_details'.",
+    });
   });
 });

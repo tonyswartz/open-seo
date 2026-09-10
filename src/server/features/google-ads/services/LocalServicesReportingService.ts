@@ -5,6 +5,7 @@ import {
   GoogleAdsConfigError,
   GoogleAdsReportError,
   GoogleAdsTokenError,
+  errorLogDetails,
   isAccessPendingReason,
 } from "@/server/lib/googleAdsErrors";
 import { GoogleAdsConnectionRepository } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
@@ -114,8 +115,17 @@ function assertReportDate(value: string, label: string): string {
   return value;
 }
 
-function mapGoogleAdsError(error: unknown): GoogleAdsReportError {
+function mapGoogleAdsError(
+  error: unknown,
+  context: { report: "performance" | "leads"; projectId: string },
+): GoogleAdsReportError {
   if (error instanceof GoogleAdsReportError) return error;
+  // Everything past here reaches the user (dashboard card, both MCP tools) as
+  // a generic code, so Google's own explanation survives only in this line.
+  console.error("google_ads.report_failed", {
+    ...context,
+    ...errorLogDetails(error),
+  });
   if (error instanceof GoogleAdsConfigError) {
     return new GoogleAdsReportError("google_ads_setup_required", error.message);
   }
@@ -394,7 +404,10 @@ async function getPerformance(input: {
       },
     };
   } catch (error) {
-    throw mapGoogleAdsError(error);
+    throw mapGoogleAdsError(error, {
+      report: "performance",
+      projectId: input.projectId,
+    });
   }
 }
 
@@ -418,7 +431,10 @@ async function listLeads(input: {
     });
     return { leads, currencyCode: connection.currencyCode, dateRange };
   } catch (error) {
-    throw mapGoogleAdsError(error);
+    throw mapGoogleAdsError(error, {
+      report: "leads",
+      projectId: input.projectId,
+    });
   }
 }
 
