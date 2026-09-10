@@ -3,7 +3,10 @@ import { db } from "@/db";
 import { account } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
 import { createGoogleAdsClient } from "@/server/lib/googleAdsClient";
-import { GoogleAdsConfigError } from "@/server/lib/googleAdsErrors";
+import {
+  GoogleAdsConfigError,
+  errorLogDetails,
+} from "@/server/lib/googleAdsErrors";
 import { GOOGLE_ADS_OAUTH_PROVIDER_ID } from "@/shared/google-ads";
 import {
   GoogleAdsConnectionRepository,
@@ -11,7 +14,6 @@ import {
 } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
 import {
   accessPending,
-  errorLogDetails,
   listAccountsForGrant,
   requiresReconnect,
   verifyAccountForGrant,

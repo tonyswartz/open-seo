@@ -25,14 +25,20 @@ const listAccessibleCustomersSchema = z.object({
   resourceNames: z.array(z.string()).optional(),
 });
 
-/** Best-effort extraction of the first Ads error detail code, e.g.
- *  { authorizationError: "DEVELOPER_TOKEN_NOT_APPROVED" } → that string. */
-function extractUpstreamReason(body: string): string | null {
+type UpstreamFailure = { reason: string | null; message: string | null };
+
+/** Best-effort extraction of the first Ads error detail: its code, e.g.
+ *  { authorizationError: "DEVELOPER_TOKEN_NOT_APPROVED" } → that string, and
+ *  Google's own message for it (falling back to the top-level one). The
+ *  message fields `.catch` so an odd one can never cost us the code. */
+function extractUpstreamFailure(body: string): UpstreamFailure {
+  const none: UpstreamFailure = { reason: null, message: null };
   try {
     const parsed: unknown = JSON.parse(body);
     const failures = z
       .object({
         error: z.object({
+          message: z.string().optional().catch(undefined),
           details: z
             .array(
               z.object({
@@ -40,6 +46,7 @@ function extractUpstreamReason(body: string): string | null {
                   .array(
                     z.object({
                       errorCode: z.record(z.string(), z.string()).optional(),
+                      message: z.string().optional().catch(undefined),
                     }),
                   )
                   .optional(),
@@ -49,16 +56,19 @@ function extractUpstreamReason(body: string): string | null {
         }),
       })
       .safeParse(parsed);
-    if (!failures.success) return null;
+    if (!failures.success) return none;
+    const topLevelMessage = failures.data.error.message ?? null;
     for (const detail of failures.data.error.details ?? []) {
       for (const error of detail.errors ?? []) {
         const code = Object.values(error.errorCode ?? {})[0];
-        if (code) return code;
+        if (code) {
+          return { reason: code, message: error.message ?? topLevelMessage };
+        }
       }
     }
-    return null;
+    return { reason: null, message: topLevelMessage };
   } catch {
-    return null;
+    return none;
   }
 }
 
@@ -167,13 +177,14 @@ export function createGoogleAdsClient(opts: {
     }
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      const reason = extractUpstreamReason(
+      const { reason, message } = extractUpstreamFailure(
         body.slice(0, MAX_ERROR_BODY_LENGTH),
       );
       throw new GoogleAdsApiError(
         response.status,
         messageForStatus(response.status, reason),
         reason,
+        message,
       );
     }
     return input.schema.parse(await response.json());

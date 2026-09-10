@@ -223,4 +223,30 @@ describe("LocalServicesReportingService", () => {
       LocalServicesReportingService.listLeads({ ...range, limit: 50 }),
     ).rejects.toMatchObject({ code: "google_ads_access_pending" });
   });
+
+  it("logs Google's own explanation before surfacing the generic error", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.search.mockRejectedValue(
+      new GoogleAdsApiError(
+        400,
+        "Google Ads API error (400).",
+        "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+        "The following field may not be used in SELECT clause: 'local_services_lead.credit_details'.",
+      ),
+    );
+    await expect(
+      LocalServicesReportingService.listLeads({ ...range, limit: 50 }),
+    ).rejects.toMatchObject({ code: "google_ads_upstream_unavailable" });
+    expect(log).toHaveBeenCalledWith(
+      "google_ads.report_failed",
+      expect.objectContaining({
+        report: "leads",
+        projectId: "project_1",
+        status: 400,
+        reason: "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+        upstreamMessage:
+          "The following field may not be used in SELECT clause: 'local_services_lead.credit_details'.",
+      }),
+    );
+  });
 });

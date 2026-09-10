@@ -4,10 +4,28 @@ export class GoogleAdsApiError extends Error {
     message: string,
     /** Google error detail code, e.g. "DEVELOPER_TOKEN_NOT_APPROVED". */
     public readonly upstreamReason: string | null = null,
+    /** Google's own explanation, e.g. "The following field may not be used in
+     *  SELECT clause: 'local_services_lead.credit_details'." Never shown to
+     *  users (`message` is the user-facing text), only logged. */
+    public readonly upstreamMessage: string | null = null,
   ) {
     super(message);
     this.name = "GoogleAdsApiError";
   }
+}
+
+/** Structured log fields for a caught Google Ads failure. Users only ever see
+ *  a generic message, so the log line built from these is the one place
+ *  Google's own explanation survives — a grep instead of a hand replay. */
+export function errorLogDetails(error: unknown) {
+  return {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    status: error instanceof GoogleAdsApiError ? error.status : undefined,
+    reason:
+      error instanceof GoogleAdsApiError ? error.upstreamReason : undefined,
+    upstreamMessage:
+      error instanceof GoogleAdsApiError ? error.upstreamMessage : undefined,
+  };
 }
 
 /** Google-side onboarding states that block Ads API access until Google

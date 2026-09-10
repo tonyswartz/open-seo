@@ -5,6 +5,7 @@ import {
   GoogleAdsApiError,
   GoogleAdsConfigError,
   GoogleAdsTokenError,
+  errorLogDetails,
   isAccessPendingReason,
 } from "@/server/lib/googleAdsErrors";
 
@@ -68,15 +69,6 @@ function abortsDiscovery(error: unknown): boolean {
     accessPending(error) ||
     error instanceof GoogleAdsConfigError
   );
-}
-
-export function errorLogDetails(error: unknown) {
-  return {
-    errorName: error instanceof Error ? error.name : "UnknownError",
-    status: error instanceof GoogleAdsApiError ? error.status : undefined,
-    reason:
-      error instanceof GoogleAdsApiError ? error.upstreamReason : undefined,
-  };
 }
 
 async function hasLocalServicesCampaigns(
