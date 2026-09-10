@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- LSA reporting and ProvideLeadFeedback share one test module */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GoogleAdsApiError } from "@/server/lib/googleAdsErrors";
 import { LocalServicesReportingService } from "./LocalServicesReportingService";
@@ -265,6 +266,196 @@ describe("LocalServicesReportingService", () => {
       LocalServicesReportingService.listLeads({ ...range, limit: 50 }),
     ).rejects.toMatchObject({ code: "google_ads_upstream_unavailable" });
   });
+
+  it("does not select credit_state or conversations on the performance path", async () => {
+    mocks.search.mockResolvedValue([]);
+    await LocalServicesReportingService.getPerformance(range);
+    const queries = mocks.search.mock.calls.map(([, query]) => String(query));
+    expect(queries.some((query) => query.includes("credit_details"))).toBe(
+      false,
+    );
+    expect(
+      queries.some((query) =>
+        query.includes("local_services_lead_conversation"),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("LocalServicesReportingService.listLeads extras", () => {
+  beforeEach(() => {
+    mocks.getByProjectId.mockResolvedValue(makeConnection());
+  });
+
+  it("returns credit_state, feedback submitted, and call duration on listLeads", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("FROM local_services_lead_conversation")) {
+        return Promise.resolve([
+          {
+            localServicesLeadConversation: {
+              lead: "customers/1234567890/localServicesLeads/338539166",
+              conversationChannel: "PHONE_CALL",
+              phoneCallDetails: { callDurationMillis: "8000" },
+            },
+          },
+          {
+            localServicesLeadConversation: {
+              lead: "customers/1234567890/localServicesLeads/338539166",
+              conversationChannel: "PHONE_CALL",
+              phoneCallDetails: { callDurationMillis: "142000" },
+            },
+          },
+          {
+            localServicesLeadConversation: {
+              lead: "customers/1234567890/localServicesLeads/338539166",
+              conversationChannel: "MESSAGE",
+            },
+          },
+        ]);
+      }
+      if (query.includes("FROM local_services_lead")) {
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "338539166",
+              leadType: "PHONE_CALL",
+              leadStatus: "NEW",
+              categoryId: "xcat:service_area_business_criminal_lawyer",
+              creationDateTime: "2026-09-09 13:41:52",
+              leadCharged: true,
+              leadFeedbackSubmitted: true,
+              creditDetails: { creditState: "CREDITED" },
+              contactDetails: { phoneNumber: "+15097598423" },
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const result = await LocalServicesReportingService.listLeads({
+      ...range,
+      limit: 50,
+    });
+    expect(result.leads).toEqual([
+      {
+        id: "338539166",
+        leadType: "PHONE_CALL",
+        leadStatus: "NEW",
+        categoryId: "xcat:service_area_business_criminal_lawyer",
+        serviceId: null,
+        creationDateTime: "2026-09-09 13:41:52",
+        charged: true,
+        consumerName: null,
+        consumerPhoneNumber: "+15097598423",
+        consumerEmail: null,
+        creditState: "CREDITED",
+        leadFeedbackSubmitted: true,
+        conversationDurationMillis: 142_000,
+      },
+    ]);
+    expect(mocks.search).toHaveBeenCalledWith(
+      "1234567890",
+      expect.stringContaining("credit_details.credit_state"),
+      { loginCustomerId: "2930000000" },
+    );
+    expect(mocks.search).toHaveBeenCalledWith(
+      "1234567890",
+      expect.stringContaining("call_duration_millis"),
+      { loginCustomerId: "2930000000" },
+    );
+    expect(
+      mocks.search.mock.calls.some(([, query]) =>
+        String(query).includes("call_recording_url"),
+      ),
+    ).toBe(false);
+  });
+
+  it("falls back when credit/feedback extras are SELECT-prohibited", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("credit_details.credit_state")) {
+        return Promise.reject(
+          new GoogleAdsApiError(
+            400,
+            "Google Ads API error (400).",
+            "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+            "The following field may not be used in SELECT clause: 'local_services_lead.credit_details.credit_state'.",
+          ),
+        );
+      }
+      if (query.includes("FROM local_services_lead_conversation")) {
+        return Promise.resolve([]);
+      }
+      if (query.includes("FROM local_services_lead")) {
+        return Promise.resolve([
+          { localServicesLead: { id: "1", leadCharged: true } },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await LocalServicesReportingService.listLeads({
+      ...range,
+      limit: 50,
+    });
+    expect(result.leads[0]).toMatchObject({
+      id: "1",
+      charged: true,
+      creditState: null,
+      leadFeedbackSubmitted: null,
+      conversationDurationMillis: null,
+    });
+    expect(log).toHaveBeenCalledWith(
+      "google_ads.lead_list_extras_unreadable",
+      expect.objectContaining({
+        reason: "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+      }),
+    );
+    log.mockRestore();
+  });
+
+  it("omits duration when the conversation resource is SELECT-prohibited", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("FROM local_services_lead_conversation")) {
+        return Promise.reject(
+          new GoogleAdsApiError(
+            400,
+            "Google Ads API error (400).",
+            "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+            "The following field may not be used in SELECT clause: 'local_services_lead_conversation.phone_call_details.call_duration_millis'.",
+          ),
+        );
+      }
+      if (query.includes("FROM local_services_lead")) {
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "1",
+              leadCharged: true,
+              leadFeedbackSubmitted: false,
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await LocalServicesReportingService.listLeads({
+      ...range,
+      limit: 50,
+    });
+    expect(result.leads[0]?.conversationDurationMillis).toBeNull();
+    expect(result.leads[0]?.leadFeedbackSubmitted).toBe(false);
+    expect(log).toHaveBeenCalledWith(
+      "google_ads.lead_conversations_unreadable",
+      expect.objectContaining({
+        reason: "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+      }),
+    );
+    log.mockRestore();
+  });
 });
 
 const feedback = {
@@ -424,5 +615,43 @@ describe("LocalServicesReportingService.provideLeadFeedback", () => {
       LocalServicesReportingService.provideLeadFeedback(feedback),
     ).rejects.toMatchObject({ code: "lead_not_found" });
     expect(mocks.provideLeadFeedback).not.toHaveBeenCalled();
+  });
+
+  it("maps Google RESOURCE_ALREADY_EXISTS on a re-file to already submitted", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("lead_feedback_submitted")) {
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "338539166",
+              leadCharged: true,
+              leadFeedbackSubmitted: false,
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    mocks.provideLeadFeedback.mockRejectedValue(
+      new GoogleAdsApiError(
+        400,
+        "Google Ads API error (400).",
+        "RESOURCE_ALREADY_EXISTS",
+        "The resource being created already exists.",
+      ),
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      LocalServicesReportingService.provideLeadFeedback(feedback),
+    ).rejects.toMatchObject({ code: "lead_feedback_already_submitted" });
+    expect(log).toHaveBeenCalledWith(
+      "google_ads.report_failed",
+      expect.objectContaining({
+        report: "feedback",
+        reason: "RESOURCE_ALREADY_EXISTS",
+      }),
+    );
+    log.mockRestore();
   });
 });

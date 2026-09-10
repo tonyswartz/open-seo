@@ -45,11 +45,29 @@ const leadRowSchema = z.looseObject({
     serviceId: z.string().optional(),
     creationDateTime: z.string().optional(),
     leadCharged: z.boolean().optional(),
+    leadFeedbackSubmitted: z.boolean().optional(),
+    creditDetails: z
+      .looseObject({
+        creditState: z.string().optional(),
+      })
+      .optional(),
     contactDetails: z
       .looseObject({
         phoneNumber: z.string().optional(),
         email: z.string().optional(),
         consumerName: z.string().optional(),
+      })
+      .optional(),
+  }),
+});
+
+const conversationRowSchema = z.looseObject({
+  localServicesLeadConversation: z.looseObject({
+    lead: z.string().optional(),
+    conversationChannel: z.string().optional(),
+    phoneCallDetails: z
+      .looseObject({
+        callDurationMillis: z.string().optional(),
       })
       .optional(),
   }),
@@ -136,6 +154,12 @@ export type LocalServicesLead = {
   consumerName: string | null;
   consumerPhoneNumber: string | null;
   consumerEmail: string | null;
+  /** CREDITED / PENDING when Google exposes the leaf; null if unread or unset. */
+  creditState: string | null;
+  /** Null when the field was dropped from SELECT (Google rejected it). */
+  leadFeedbackSubmitted: boolean | null;
+  /** Longest phone-call duration on this lead; null if unread or not a call. */
+  conversationDurationMillis: number | null;
 };
 
 type LocalServicesPerformance = {
@@ -228,6 +252,18 @@ function mapGoogleAdsError(
       );
     }
     if (error.status === 400) {
+      // Live 338 re-file: lead_feedback_submitted stayed false, Google 400'd
+      // RESOURCE_ALREADY_EXISTS. Treat that as already-submitted so a re-file
+      // isn't "rejected report request."
+      if (
+        context.report === "feedback" &&
+        error.upstreamReason === "RESOURCE_ALREADY_EXISTS"
+      ) {
+        return new GoogleAdsReportError(
+          "lead_feedback_already_submitted",
+          "Feedback was already submitted for this lead. Google accepts one survey per lead.",
+        );
+      }
       return new GoogleAdsReportError(
         "google_ads_request_rejected",
         "Google Ads rejected this report request. Retrying won't help.",
@@ -325,40 +361,151 @@ async function fetchSpendMicros(
     .reduce((sum, row) => sum + micros(row.metrics?.costMicros), 0);
 }
 
-async function fetchLeads(
-  client: ReturnType<typeof createGoogleAdsClient>,
-  connection: { customerId: string; loginCustomerId: string | null },
-  input: { startDate: string; endDate: string; limit: number },
-): Promise<LocalServicesLead[]> {
-  const rows = await client.search(
-    connection.customerId,
-    // credit_details is PROHIBITED_FIELD_IN_SELECT_CLAUSE in Ads API v25 —
-    // credit state isn't readable here until Google makes it selectable.
-    `SELECT local_services_lead.id, local_services_lead.lead_type,
+const LEAD_SELECT_BASE = `local_services_lead.id, local_services_lead.lead_type,
             local_services_lead.lead_status, local_services_lead.category_id,
             local_services_lead.service_id, local_services_lead.creation_date_time,
-            local_services_lead.lead_charged, local_services_lead.contact_details
+            local_services_lead.lead_charged, local_services_lead.contact_details`;
+// Parent credit_details is SELECT-prohibited (#9). The leaf
+// credit_details.credit_state is selectable on live v25 (338 returned null,
+// not a 400). lead_feedback_submitted is also selectable. Fallback if either
+// starts 400ing.
+const LEAD_SELECT_EXTRAS = `${LEAD_SELECT_BASE},
+            local_services_lead.lead_feedback_submitted,
+            local_services_lead.credit_details.credit_state`;
+
+function mapLead(
+  lead: z.infer<typeof leadRowSchema>["localServicesLead"],
+  extras: boolean,
+): LocalServicesLead {
+  return {
+    id: lead.id,
+    leadType: lead.leadType ?? null,
+    leadStatus: lead.leadStatus ?? null,
+    categoryId: lead.categoryId ?? null,
+    serviceId: lead.serviceId ?? null,
+    creationDateTime: lead.creationDateTime ?? null,
+    charged: lead.leadCharged ?? false,
+    consumerName: lead.contactDetails?.consumerName ?? null,
+    consumerPhoneNumber: lead.contactDetails?.phoneNumber ?? null,
+    consumerEmail: lead.contactDetails?.email ?? null,
+    creditState: extras ? (lead.creditDetails?.creditState ?? null) : null,
+    leadFeedbackSubmitted: extras
+      ? (lead.leadFeedbackSubmitted ?? false)
+      : null,
+    conversationDurationMillis: null,
+  };
+}
+
+function leadQuery(
+  fields: string,
+  input: { startDate: string; endDate: string; limit: number },
+): string {
+  return `SELECT ${fields}
      FROM local_services_lead
      WHERE local_services_lead.creation_date_time >= '${input.startDate} 00:00:00'
        AND local_services_lead.creation_date_time <= '${input.endDate} 23:59:59'
      ORDER BY local_services_lead.creation_date_time DESC
-     LIMIT ${input.limit}`,
-    { loginCustomerId: connection.loginCustomerId },
-  );
-  return rows
-    .map((row) => leadRowSchema.parse(row).localServicesLead)
-    .map((lead) => ({
-      id: lead.id,
-      leadType: lead.leadType ?? null,
-      leadStatus: lead.leadStatus ?? null,
-      categoryId: lead.categoryId ?? null,
-      serviceId: lead.serviceId ?? null,
-      creationDateTime: lead.creationDateTime ?? null,
-      charged: lead.leadCharged ?? false,
-      consumerName: lead.contactDetails?.consumerName ?? null,
-      consumerPhoneNumber: lead.contactDetails?.phoneNumber ?? null,
-      consumerEmail: lead.contactDetails?.email ?? null,
-    }));
+     LIMIT ${input.limit}`;
+}
+
+async function fetchLeads(
+  client: ReturnType<typeof createGoogleAdsClient>,
+  connection: { customerId: string; loginCustomerId: string | null },
+  input: { startDate: string; endDate: string; limit: number },
+  extras: boolean,
+): Promise<LocalServicesLead[]> {
+  const options = { loginCustomerId: connection.loginCustomerId };
+  const run = async (useExtras: boolean) => {
+    const rows = await client.search(
+      connection.customerId,
+      leadQuery(useExtras ? LEAD_SELECT_EXTRAS : LEAD_SELECT_BASE, input),
+      options,
+    );
+    return rows
+      .map((row) => leadRowSchema.parse(row).localServicesLead)
+      .map((lead) => mapLead(lead, useExtras));
+  };
+
+  if (!extras) return run(false);
+  try {
+    return await run(true);
+  } catch (error) {
+    if (!isProhibitedSelectField(error)) throw error;
+    // Same lesson as #9: the field reference is not a guarantee. List leads
+    // without credit/feedback rather than fail the whole tool.
+    console.error(
+      "google_ads.lead_list_extras_unreadable",
+      errorLogDetails(error),
+    );
+    return run(false);
+  }
+}
+
+function leadIdFromConversationLead(resourceName: string): string | null {
+  const match = /\/localServicesLeads\/(\d+)$/.exec(resourceName);
+  return match?.[1] ?? null;
+}
+
+function durationMillis(value: string | undefined): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Longest phone-call duration per lead. Does not SELECT call_recording_url. */
+async function fetchConversationDurations(
+  client: ReturnType<typeof createGoogleAdsClient>,
+  connection: { customerId: string; loginCustomerId: string | null },
+  input: { startDate: string; endDate: string },
+): Promise<Map<string, number>> {
+  try {
+    const rows = await client.search(
+      connection.customerId,
+      `SELECT local_services_lead_conversation.lead,
+              local_services_lead_conversation.conversation_channel,
+              local_services_lead_conversation.phone_call_details.call_duration_millis
+       FROM local_services_lead_conversation
+       WHERE local_services_lead_conversation.event_date_time >= '${input.startDate} 00:00:00'
+         AND local_services_lead_conversation.event_date_time <= '${input.endDate} 23:59:59'`,
+      { loginCustomerId: connection.loginCustomerId },
+    );
+    const durations = new Map<string, number>();
+    for (const row of rows) {
+      const conversation =
+        conversationRowSchema.parse(row).localServicesLeadConversation;
+      if (
+        conversation.conversationChannel &&
+        conversation.conversationChannel !== "PHONE_CALL"
+      ) {
+        continue;
+      }
+      const leadId = conversation.lead
+        ? leadIdFromConversationLead(conversation.lead)
+        : null;
+      if (!leadId) continue;
+      const millis = durationMillis(
+        conversation.phoneCallDetails?.callDurationMillis,
+      );
+      if (millis == null) continue;
+      const previous = durations.get(leadId);
+      if (previous == null || millis > previous) durations.set(leadId, millis);
+    }
+    return durations;
+  } catch (error) {
+    // Duration is enrichment. A 400 here (prohibited field, or a WHERE
+    // Google won't accept) must not fail the lead list.
+    if (
+      !isProhibitedSelectField(error) &&
+      !(error instanceof GoogleAdsApiError && error.status === 400)
+    ) {
+      throw error;
+    }
+    console.error(
+      "google_ads.lead_conversations_unreadable",
+      errorLogDetails(error),
+    );
+    return new Map();
+  }
 }
 
 const MAX_LEADS_FOR_TOTALS = 1_000;
@@ -410,11 +557,16 @@ async function getPerformance(input: {
         ),
         // One over the cap: the extra row is how "exactly 1,000 leads" is told
         // apart from "we stopped at 1,000".
-        fetchLeads(client, connection, {
-          startDate,
-          endDate,
-          limit: MAX_LEADS_FOR_TOTALS + 1,
-        }),
+        fetchLeads(
+          client,
+          connection,
+          {
+            startDate,
+            endDate,
+            limit: MAX_LEADS_FOR_TOTALS + 1,
+          },
+          false,
+        ),
       ]);
 
     const campaigns = campaignRows
@@ -501,11 +653,24 @@ async function listLeads(input: {
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
     const dateRange = resolveRange(connection.timeZone, input);
-    const leads = await fetchLeads(client, connection, {
-      ...dateRange,
-      limit,
-    });
-    return { leads, currencyCode: connection.currencyCode, dateRange };
+    const leads = await fetchLeads(
+      client,
+      connection,
+      { ...dateRange, limit },
+      true,
+    );
+    const durations =
+      leads.length > 0
+        ? await fetchConversationDurations(client, connection, dateRange)
+        : new Map<string, number>();
+    return {
+      leads: leads.map((lead) => ({
+        ...lead,
+        conversationDurationMillis: durations.get(lead.id) ?? null,
+      })),
+      currencyCode: connection.currencyCode,
+      dateRange,
+    };
   } catch (error) {
     throw mapGoogleAdsError(error, {
       report: "leads",
