@@ -133,6 +133,7 @@ describe("LocalServicesReportingService", () => {
       phoneCalls: 2,
       messages: 1,
       bookings: 0,
+      truncated: false,
     });
     expect(performance.costPerChargedLeadMicros).toBe(61_500_000);
     expect(performance.pacing.weeklyBudgetMicros).toBe(350_000_000);
@@ -166,6 +167,28 @@ describe("LocalServicesReportingService", () => {
       await LocalServicesReportingService.getPerformance(range);
     expect(performance.pacing.weeklyBudgetMicros).toBeNull();
     expect(performance.pacing.utilization).toBeNull();
+  });
+
+  it("flags lead totals that hit the reporting cap", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (!query.includes("FROM local_services_lead")) {
+        return Promise.resolve([]);
+      }
+      // One more than the cap, which is exactly what the extra row detects.
+      return Promise.resolve(
+        Array.from({ length: 1_001 }, (_, i) => ({
+          localServicesLead: { id: `${i}`, leadCharged: true },
+        })),
+      );
+    });
+
+    const performance =
+      await LocalServicesReportingService.getPerformance(range);
+    expect(performance.leadTotals).toMatchObject({
+      total: 1_000,
+      charged: 1_000,
+      truncated: true,
+    });
   });
 
   it("maps an unapproved developer token to google_ads_access_pending", async () => {

@@ -89,6 +89,9 @@ type LocalServicesPerformance = {
     phoneCalls: number;
     messages: number;
     bookings: number;
+    /** The window held more leads than the report counts. Spend stays exact,
+     *  so every total here is a floor and cost-per-lead an upper bound. */
+    truncated: boolean;
   };
   costPerChargedLeadMicros: number | null;
   pacing: {
@@ -274,10 +277,12 @@ async function getPerformance(input: {
           isoDateDaysAgo(6),
           isoDateDaysAgo(0),
         ),
+        // One over the cap: the extra row is how "exactly 1,000 leads" is told
+        // apart from "we stopped at 1,000".
         fetchLeads(client, connection, {
           startDate,
           endDate,
-          limit: MAX_LEADS_FOR_TOTALS,
+          limit: MAX_LEADS_FOR_TOTALS + 1,
         }),
       ]);
 
@@ -310,13 +315,17 @@ async function getPerformance(input: {
           ) * 7
         : null;
 
+    const truncated = leads.length > MAX_LEADS_FOR_TOTALS;
+    const counted = truncated ? leads.slice(0, MAX_LEADS_FOR_TOTALS) : leads;
     const leadTotals = {
-      total: leads.length,
-      charged: leads.filter((lead) => lead.charged).length,
-      booked: leads.filter((lead) => lead.leadStatus === "BOOKED").length,
-      phoneCalls: leads.filter((lead) => lead.leadType === "PHONE_CALL").length,
-      messages: leads.filter((lead) => lead.leadType === "MESSAGE").length,
-      bookings: leads.filter((lead) => lead.leadType === "BOOKING").length,
+      total: counted.length,
+      charged: counted.filter((lead) => lead.charged).length,
+      booked: counted.filter((lead) => lead.leadStatus === "BOOKED").length,
+      phoneCalls: counted.filter((lead) => lead.leadType === "PHONE_CALL")
+        .length,
+      messages: counted.filter((lead) => lead.leadType === "MESSAGE").length,
+      bookings: counted.filter((lead) => lead.leadType === "BOOKING").length,
+      truncated,
     };
 
     return {
