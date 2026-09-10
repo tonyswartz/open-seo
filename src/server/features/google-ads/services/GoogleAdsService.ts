@@ -8,6 +8,7 @@ import {
   GoogleAdsApiError,
   GoogleAdsConfigError,
   GoogleAdsTokenError,
+  isAccessPendingReason,
 } from "@/server/lib/googleAdsErrors";
 import { GOOGLE_ADS_OAUTH_PROVIDER_ID } from "@/shared/google-ads";
 import {
@@ -83,10 +84,7 @@ function requiresReconnect(error: unknown): boolean {
 function accessPending(error: unknown): boolean {
   return (
     error instanceof GoogleAdsApiError &&
-    (error.upstreamReason === "DEVELOPER_TOKEN_NOT_APPROVED" ||
-      error.upstreamReason === "DEVELOPER_TOKEN_PROHIBITED" ||
-      error.upstreamReason === "MISSING_DEVELOPER_TOKEN" ||
-      error.upstreamReason === "SERVICE_DISABLED")
+    isAccessPendingReason(error.upstreamReason)
   );
 }
 

@@ -5,6 +5,7 @@ import {
   GoogleAdsConfigError,
   GoogleAdsReportError,
   GoogleAdsTokenError,
+  isAccessPendingReason,
 } from "@/server/lib/googleAdsErrors";
 import { GoogleAdsConnectionRepository } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
 
@@ -127,12 +128,7 @@ function mapGoogleAdsError(error: unknown): GoogleAdsReportError {
     );
   }
   if (error instanceof GoogleAdsApiError) {
-    if (
-      error.upstreamReason === "DEVELOPER_TOKEN_NOT_APPROVED" ||
-      error.upstreamReason === "DEVELOPER_TOKEN_PROHIBITED" ||
-      error.upstreamReason === "MISSING_DEVELOPER_TOKEN" ||
-      error.upstreamReason === "SERVICE_DISABLED"
-    ) {
+    if (isAccessPendingReason(error.upstreamReason)) {
       return new GoogleAdsReportError(
         "google_ads_access_pending",
         error.message,
