@@ -76,6 +76,24 @@ describe("GoogleAdsService.listAccountsForUserWithGrantStatus", () => {
     });
   });
 
+  it("classifies an unapproved-for-production Cloud project as access pending", async () => {
+    mocks.listAccessibleCustomers.mockResolvedValue(["1111111111"]);
+    mocks.search.mockRejectedValue(
+      new GoogleAdsApiError(
+        403,
+        "Google Ads API access not approved for production accounts",
+        "CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION",
+      ),
+    );
+    const result =
+      await GoogleAdsService.listAccountsForUserWithGrantStatus("user_1");
+    expect(result.accounts[0]).toMatchObject({
+      accessPending: true,
+      accountsUnavailable: false,
+      accounts: [],
+    });
+  });
+
   it("surfaces accounts-unavailable when every accessible customer fails its probe", async () => {
     mocks.listAccessibleCustomers.mockResolvedValue([
       "1111111111",
