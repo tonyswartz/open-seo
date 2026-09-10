@@ -88,7 +88,6 @@ describe("LocalServicesReportingService", () => {
               leadStatus: "NEW",
               creationDateTime: "2026-09-05 09:00:00",
               leadCharged: true,
-              creditDetails: { creditState: "PENDING" },
             },
           },
           {

@@ -312,10 +312,6 @@ const LEAD_COLUMNS: McpTableColumn<LocalServicesLead>[] = [
     value: (row) => (row.charged ? "yes" : "no"),
   },
   {
-    header: "credit",
-    value: (row) => row.creditState ?? "—",
-  },
-  {
     header: "contact",
     value: (row) =>
       row.consumerPhoneNumber ?? row.consumerEmail ?? row.consumerName ?? "—",
@@ -327,7 +323,7 @@ export const getLocalServicesLeadsTool = {
   config: {
     title: "List Local Services Ads leads",
     description:
-      "List the connected Google Ads account's Local Services Ads leads, newest first: type (call/message/booking), status (e.g. NEW, BOOKED), whether the lead was charged, credit state for disputed leads, and the consumer's contact details. Lead contents are customer PII — handle accordingly. Read-only; uses no credits.",
+      "List the connected Google Ads account's Local Services Ads leads, newest first: type (call/message/booking), status (e.g. NEW, BOOKED), whether the lead was charged, and the consumer's contact details. Lead contents are customer PII — handle accordingly. Read-only; uses no credits.",
     inputSchema: leadsInputSchema,
     outputSchema: {
       ok: z.boolean(),
@@ -349,7 +345,6 @@ export const getLocalServicesLeadsTool = {
               serviceId: z.string().nullable(),
               creationDateTime: z.string().nullable(),
               charged: z.boolean(),
-              creditState: z.string().nullable(),
               consumerName: z.string().nullable(),
               consumerPhoneNumber: z.string().nullable(),
               consumerEmail: z.string().nullable(),
