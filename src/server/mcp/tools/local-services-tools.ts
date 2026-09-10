@@ -16,7 +16,6 @@ import {
 import { GoogleAdsReportError } from "@/server/lib/googleAdsErrors";
 import { GOOGLE_ADS_SELF_HOSTED_SETUP_DOCS_URL } from "@/shared/google-ads";
 
-const DEFAULT_RANGE_DAYS = 28;
 const DEFAULT_LEAD_LIMIT = 50;
 const MAX_LEAD_LIMIT = 200;
 
@@ -27,16 +26,6 @@ type ProjectAuthContext = {
 
 function connectGoogleAdsUrl(baseUrl: string, projectId: string): string {
   return buildDashboardUrl(baseUrl, `/p/${projectId}/settings/integrations`);
-}
-
-function defaultRange(): { startDate: string; endDate: string } {
-  const endDate = new Date().toISOString().slice(0, 10);
-  const startDate = new Date(
-    Date.now() - (DEFAULT_RANGE_DAYS - 1) * 24 * 60 * 60 * 1_000,
-  )
-    .toISOString()
-    .slice(0, 10);
-  return { startDate, endDate };
 }
 
 function formatMoney(
@@ -204,14 +193,14 @@ export const getLocalServicesPerformanceTool = {
     }
 
     try {
-      const range =
-        args.startDate && args.endDate
-          ? { startDate: args.startDate, endDate: args.endDate }
-          : defaultRange();
       const performance = await LocalServicesReportingService.getPerformance({
         projectId: args.projectId,
-        ...range,
+        startDate: args.startDate,
+        endDate: args.endDate,
       });
+      // Resolved by the service in the Ads account's time zone when the caller
+      // didn't pin one.
+      const range = performance.dateRange;
       const money = (value: number | null) =>
         formatMoney(value, performance.currencyCode);
       const { leadTotals, pacing } = performance;
@@ -382,15 +371,13 @@ export const getLocalServicesLeadsTool = {
     }
 
     try {
-      const range =
-        args.startDate && args.endDate
-          ? { startDate: args.startDate, endDate: args.endDate }
-          : defaultRange();
-      const { leads } = await LocalServicesReportingService.listLeads({
-        projectId: args.projectId,
-        ...range,
-        limit: args.limit ?? DEFAULT_LEAD_LIMIT,
-      });
+      const { leads, dateRange: range } =
+        await LocalServicesReportingService.listLeads({
+          projectId: args.projectId,
+          startDate: args.startDate,
+          endDate: args.endDate,
+          limit: args.limit ?? DEFAULT_LEAD_LIMIT,
+        });
       const header = `LSA leads · ${range.startDate}→${range.endDate} · ${leads.length} lead${leads.length === 1 ? "" : "s"} (newest first)`;
       const text =
         leads.length > 0

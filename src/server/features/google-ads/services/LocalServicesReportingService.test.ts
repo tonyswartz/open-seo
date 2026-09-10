@@ -29,6 +29,7 @@ function makeConnection(
     loginCustomerId: "2930000000",
     customerDescriptiveName: "Law Firm",
     currencyCode: "USD",
+    timeZone: "America/Los_Angeles",
     connectedByUserId: "user_1",
     googleAdsAccountId: "account_1",
     connectedAccountEmail: "alice@example.com",
@@ -166,6 +167,26 @@ describe("LocalServicesReportingService", () => {
       await LocalServicesReportingService.getPerformance(range);
     expect(performance.pacing.weeklyBudgetMicros).toBeNull();
     expect(performance.pacing.utilization).toBeNull();
+  });
+
+  it("builds the default window from the Ads account's own calendar day", async () => {
+    // 21:00 in Los Angeles on the 9th is already the 10th in UTC. Google reads
+    // segments.date in the account's zone, so a UTC window would ask for a day
+    // that hasn't happened there and drop one off the start.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-10T04:00:00Z"));
+    mocks.search.mockResolvedValue([]);
+    try {
+      const performance = await LocalServicesReportingService.getPerformance({
+        projectId: "project_1",
+      });
+      expect(performance.dateRange).toEqual({
+        startDate: "2026-08-13",
+        endDate: "2026-09-09",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("flags lead totals that hit the reporting cap", async () => {

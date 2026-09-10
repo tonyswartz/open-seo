@@ -10,6 +10,8 @@ import {
 import { GoogleAdsConnectionRepository } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const REPORT_WINDOW_DAYS = 28;
+const PACING_WINDOW_DAYS = 7;
 
 // ProtoJSON: int64 fields arrive as strings, enums as bare strings, and
 // scalar fields at their default value (false, 0) are omitted entirely.
@@ -164,9 +166,43 @@ function micros(value: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isoDateDaysAgo(days: number): string {
-  const date = new Date(Date.now() - days * 24 * 60 * 60 * 1_000);
+/** Today's date in the Ads account's own time zone. Google evaluates
+ *  `segments.date` against that zone, so a UTC "today" is already tomorrow for
+ *  most of a US business day — the window ends on a day that hasn't happened
+ *  and starts a day late, quietly dropping a day of spend. */
+function todayInAccountZone(timeZone: string | null): string {
+  if (!timeZone) return new Date().toISOString().slice(0, 10);
+  try {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    // Intl throws on an unknown zone; a UTC window beats no report.
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+/** Calendar arithmetic on an already-zoned date, so a DST boundary inside the
+ *  window can't shift it by a day. */
+function isoDateBefore(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - days);
   return date.toISOString().slice(0, 10);
+}
+
+/** The report's default window: the last `REPORT_WINDOW_DAYS` account days,
+ *  today included. Callers that don't pin an explicit range get this instead of
+ *  computing their own from server UTC. */
+function defaultRange(timeZone: string | null): {
+  startDate: string;
+  endDate: string;
+} {
+  const endDate = todayInAccountZone(timeZone);
+  return { endDate, startDate: isoDateBefore(endDate, REPORT_WINDOW_DAYS - 1) };
 }
 
 async function getConnectedClient(projectId: string) {
@@ -241,11 +277,14 @@ async function fetchLeads(
 
 const MAX_LEADS_FOR_TOTALS = 1_000;
 
-async function getPerformance(input: {
-  projectId: string;
-  startDate: string;
-  endDate: string;
-}): Promise<LocalServicesPerformance> {
+/** Validate a caller-supplied range, or fall back to the account's own last
+ *  28 days. Resolving it here is the point: only the connection knows the time
+ *  zone Google will read the dates in. */
+function resolveRange(
+  timeZone: string | null,
+  input: { startDate?: string; endDate?: string },
+): { startDate: string; endDate: string } {
+  if (!input.startDate || !input.endDate) return defaultRange(timeZone);
   const startDate = assertReportDate(input.startDate, "startDate");
   const endDate = assertReportDate(input.endDate, "endDate");
   if (endDate < startDate) {
@@ -254,8 +293,18 @@ async function getPerformance(input: {
       "endDate must not be before startDate.",
     );
   }
+  return { startDate, endDate };
+}
+
+async function getPerformance(input: {
+  projectId: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<LocalServicesPerformance> {
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
+    const { startDate, endDate } = resolveRange(connection.timeZone, input);
+    const pacingEnd = todayInAccountZone(connection.timeZone);
     const [campaignRows, spendMicros, last7DaysSpendMicros, leads] =
       await Promise.all([
         client.search(
@@ -270,8 +319,8 @@ async function getPerformance(input: {
         fetchSpendMicros(
           client,
           connection,
-          isoDateDaysAgo(6),
-          isoDateDaysAgo(0),
+          isoDateBefore(pacingEnd, PACING_WINDOW_DAYS - 1),
+          pacingEnd,
         ),
         // One over the cap: the extra row is how "exactly 1,000 leads" is told
         // apart from "we stopped at 1,000".
@@ -351,27 +400,23 @@ async function getPerformance(input: {
 
 async function listLeads(input: {
   projectId: string;
-  startDate: string;
-  endDate: string;
+  startDate?: string;
+  endDate?: string;
   limit: number;
-}): Promise<{ leads: LocalServicesLead[]; currencyCode: string | null }> {
-  const startDate = assertReportDate(input.startDate, "startDate");
-  const endDate = assertReportDate(input.endDate, "endDate");
-  if (endDate < startDate) {
-    throw new GoogleAdsReportError(
-      "validation_error",
-      "endDate must not be before startDate.",
-    );
-  }
+}): Promise<{
+  leads: LocalServicesLead[];
+  currencyCode: string | null;
+  dateRange: { startDate: string; endDate: string };
+}> {
   const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 1_000);
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
+    const dateRange = resolveRange(connection.timeZone, input);
     const leads = await fetchLeads(client, connection, {
-      startDate,
-      endDate,
+      ...dateRange,
       limit,
     });
-    return { leads, currencyCode: connection.currencyCode };
+    return { leads, currencyCode: connection.currencyCode, dateRange };
   } catch (error) {
     throw mapGoogleAdsError(error);
   }

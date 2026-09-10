@@ -123,6 +123,7 @@ describe("local services MCP tools", () => {
   it("lists leads with contact details and a connect hint when not connected", async () => {
     mocks.listLeads.mockResolvedValue({
       currencyCode: "USD",
+      dateRange: { startDate: "2026-08-13", endDate: "2026-09-09" },
       leads: [
         {
           id: "1",
