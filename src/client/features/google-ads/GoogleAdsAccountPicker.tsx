@@ -1,11 +1,17 @@
-export type AccountSelection = { accountId: string; customerId: string };
+export type AccountSelection = {
+  accountId: string;
+  customerId: string;
+  loginCustomerId: string | null;
+};
 
 type GrantAccounts = {
   accountId: string;
   email: string | null;
   requiresReconnect: boolean;
   accessPending: boolean;
+  setupRequired: boolean;
   accountsUnavailable: boolean;
+  truncated: boolean;
   accounts: Array<{
     customerId: string;
     loginCustomerId: string | null;
@@ -64,8 +70,10 @@ export function GoogleAdsAccountPicker({
     );
   }
   const accessPending = grants.some((grant) => grant.accessPending);
+  const setupRequired = grants.some((grant) => grant.setupRequired);
   const requiresReconnect = grants.some((grant) => grant.requiresReconnect);
   const accountsUnavailable = grants.some((grant) => grant.accountsUnavailable);
+  const truncated = grants.some((grant) => grant.truncated);
   const connectedEmail =
     grants.map((grant) => grant.email).find(Boolean) ?? null;
   const candidates = grants.flatMap((grant) =>
@@ -79,6 +87,15 @@ export function GoogleAdsAccountPicker({
             Google Ads API access is still pending on Google&apos;s side
             (developer token approval or API enablement). Account listing will
             work once Google finishes onboarding — no changes needed here.
+          </p>
+        </div>
+      ) : null}
+      {setupRequired ? (
+        <div className="alert alert-warning items-start text-sm">
+          <p>
+            GOOGLE_ADS_DEVELOPER_TOKEN is not set on this deployment, so Google
+            Ads accounts can&apos;t be listed. This is a setup step here, not
+            something to wait on Google for.
           </p>
         </div>
       ) : null}
@@ -101,6 +118,13 @@ export function GoogleAdsAccountPicker({
           <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-base-content/45">
             Choose the Ads account with your Local Services campaigns
           </legend>
+          {truncated ? (
+            <p className="text-xs text-base-content/50">
+              This Google account reaches more Ads accounts than are listed
+              here. If the one you want is missing, connect a Google account
+              with narrower access.
+            </p>
+          ) : null}
           {candidates.map(({ grant, candidate }) => {
             const checked =
               selection?.accountId === grant.accountId &&
@@ -120,6 +144,7 @@ export function GoogleAdsAccountPicker({
                       onSelect({
                         accountId: grant.accountId,
                         customerId: candidate.customerId,
+                        loginCustomerId: candidate.loginCustomerId,
                       })
                     }
                   />
@@ -142,7 +167,7 @@ export function GoogleAdsAccountPicker({
             );
           })}
         </fieldset>
-      ) : !accessPending && !requiresReconnect ? (
+      ) : !accessPending && !setupRequired && !requiresReconnect ? (
         <div className="space-y-2">
           <p className="text-base-content/70">
             {`No Google Ads accounts found on the connected Google account${connectedEmail ? ` (${connectedEmail})` : ""}.`}

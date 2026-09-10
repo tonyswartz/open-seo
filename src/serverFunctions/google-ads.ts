@@ -27,6 +27,9 @@ const projectScopedSchema = z.object({ projectId: z.string().min(1) });
 const setAccountSchema = projectScopedSchema.extend({
   accountId: z.string().min(1),
   customerId: z.string().regex(/^\d+$/),
+  // The manager the picker listed this account under, null when the grant
+  // reaches it directly. Verified against the grant server-side before use.
+  loginCustomerId: z.string().regex(/^\d+$/).nullable(),
 });
 const startSelfHostedLinkSchema = z.object({
   callbackURL: z.string().min(1),
@@ -136,6 +139,7 @@ export const setGoogleAdsAccount = createServerFn({ method: "POST" })
       organizationId: context.organizationId,
       accountId: data.accountId,
       customerId: data.customerId,
+      loginCustomerId: data.loginCustomerId,
       userId: context.userId,
     });
     waitUntil(
