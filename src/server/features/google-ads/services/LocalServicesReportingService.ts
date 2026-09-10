@@ -48,9 +48,6 @@ const leadRowSchema = z.looseObject({
         consumerName: z.string().optional(),
       })
       .optional(),
-    creditDetails: z
-      .looseObject({ creditState: z.string().optional() })
-      .optional(),
   }),
 });
 
@@ -70,7 +67,6 @@ export type LocalServicesLead = {
   serviceId: string | null;
   creationDateTime: string | null;
   charged: boolean;
-  creditState: string | null;
   consumerName: string | null;
   consumerPhoneNumber: string | null;
   consumerEmail: string | null;
@@ -214,11 +210,12 @@ async function fetchLeads(
 ): Promise<LocalServicesLead[]> {
   const rows = await client.search(
     connection.customerId,
+    // credit_details is PROHIBITED_FIELD_IN_SELECT_CLAUSE in Ads API v25 —
+    // credit state isn't readable here until Google makes it selectable.
     `SELECT local_services_lead.id, local_services_lead.lead_type,
             local_services_lead.lead_status, local_services_lead.category_id,
             local_services_lead.service_id, local_services_lead.creation_date_time,
-            local_services_lead.lead_charged, local_services_lead.contact_details,
-            local_services_lead.credit_details
+            local_services_lead.lead_charged, local_services_lead.contact_details
      FROM local_services_lead
      WHERE local_services_lead.creation_date_time >= '${input.startDate} 00:00:00'
        AND local_services_lead.creation_date_time <= '${input.endDate} 23:59:59'
@@ -236,7 +233,6 @@ async function fetchLeads(
       serviceId: lead.serviceId ?? null,
       creationDateTime: lead.creationDateTime ?? null,
       charged: lead.leadCharged ?? false,
-      creditState: lead.creditDetails?.creditState ?? null,
       consumerName: lead.contactDetails?.consumerName ?? null,
       consumerPhoneNumber: lead.contactDetails?.phoneNumber ?? null,
       consumerEmail: lead.contactDetails?.email ?? null,

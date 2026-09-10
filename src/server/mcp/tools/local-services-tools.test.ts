@@ -132,7 +132,6 @@ describe("local services MCP tools", () => {
           serviceId: "dui_lawyer",
           creationDateTime: "2026-09-06 10:00:00",
           charged: true,
-          creditState: null,
           consumerName: null,
           consumerPhoneNumber: "+15095551234",
           consumerEmail: null,
