@@ -151,6 +151,7 @@ export const getLocalServicesPerformanceTool = {
           phoneCalls: z.number(),
           messages: z.number(),
           bookings: z.number(),
+          truncated: z.boolean(),
         })
         .optional(),
       pacing: z
@@ -220,10 +221,15 @@ export const getLocalServicesPerformanceTool = {
           : `${Math.round(pacing.utilization * 100)}%`;
       const lines = [
         `LSA · customer ${performance.customerId} · ${range.startDate}→${range.endDate}`,
-        `Spend ${money(performance.spendMicros)} · leads ${leadTotals.total} (${leadTotals.charged} charged, ${leadTotals.booked} booked) · cost/charged lead ${money(performance.costPerChargedLeadMicros)}`,
+        `Spend ${money(performance.spendMicros)} · leads ${leadTotals.total}${leadTotals.truncated ? "+" : ""} (${leadTotals.charged} charged, ${leadTotals.booked} booked) · cost/charged lead ${money(performance.costPerChargedLeadMicros)}${leadTotals.truncated ? " (upper bound)" : ""}`,
         `Lead types: ${leadTotals.phoneCalls} calls, ${leadTotals.messages} messages, ${leadTotals.bookings} bookings`,
         `Pacing: last 7 days ${money(pacing.last7DaysSpendMicros)} of ${money(pacing.weeklyBudgetMicros)}/week (${utilization})`,
       ];
+      if (leadTotals.truncated) {
+        lines.push(
+          `Note: lead counts stop at ${leadTotals.total} for this window. Spend is complete, so every lead total is a floor and cost/charged lead an upper bound.`,
+        );
+      }
       if (performance.campaigns.length > 0) {
         const columns: McpTableColumn<
           (typeof performance.campaigns)[number]
