@@ -117,9 +117,20 @@ export function createGoogleAdsClient(opts: {
   userId: string;
   googleAdsAccountId: string;
 }) {
+  // Memoized so a fan-out of concurrent requests mints one token — but dropped
+  // again on failure. Keeping a rejected promise would poison every later call
+  // on this client, turning one transient refresh blip into a permanent
+  // "connection expired, reconnect" for the user.
   let accessTokenPromise: Promise<string> | undefined;
-  const accessToken = () =>
-    (accessTokenPromise ??= getGoogleAdsAccessToken(opts));
+  const accessToken = () => {
+    accessTokenPromise ??= getGoogleAdsAccessToken(opts).catch(
+      (error: unknown) => {
+        accessTokenPromise = undefined;
+        throw error;
+      },
+    );
+    return accessTokenPromise;
+  };
 
   async function request<T>(input: {
     url: string;

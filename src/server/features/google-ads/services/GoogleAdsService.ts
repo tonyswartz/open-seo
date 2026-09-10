@@ -74,6 +74,14 @@ async function userHasGrant(userId: string): Promise<boolean> {
   return grants.length > 0;
 }
 
+async function grantExists(
+  userId: string,
+  googleAdsAccountId: string,
+): Promise<boolean> {
+  const grants = await listGrantsForUser(userId);
+  return grants.some((grant) => grant.accountId === googleAdsAccountId);
+}
+
 function requiresReconnect(error: unknown): boolean {
   return (
     error instanceof GoogleAdsTokenError ||
@@ -295,8 +303,7 @@ async function setAccount(input: {
   customerId: string;
   userId: string;
 }): Promise<GoogleAdsConnection> {
-  const grants = await listGrantsForUser(input.userId);
-  if (!grants.some((grant) => grant.accountId === input.accountId)) {
+  if (!(await grantExists(input.userId, input.accountId))) {
     throw new AppError(
       "NOT_FOUND",
       "That Google account isn't connected to your OpenSEO account.",
@@ -327,7 +334,7 @@ async function setAccount(input: {
     connectedAccountEmail = null;
   }
 
-  return GoogleAdsConnectionRepository.upsert({
+  const connection = await GoogleAdsConnectionRepository.upsert({
     projectId: input.projectId,
     organizationId: input.organizationId,
     customerId: candidate.customerId,
@@ -338,21 +345,18 @@ async function setAccount(input: {
     googleAdsAccountId: input.accountId,
     connectedAccountEmail,
   });
-}
-
-async function unlinkUserGrant(
-  userId: string,
-  googleAdsAccountId: string,
-): Promise<void> {
-  await db
-    .delete(account)
-    .where(
-      and(
-        eq(account.userId, userId),
-        eq(account.providerId, GOOGLE_ADS_OAUTH_PROVIDER_ID),
-        eq(account.accountId, googleAdsAccountId),
-      ),
+  // Discovery above is several Google round trips long. Disconnecting another
+  // project that shares this Google login releases the grant, so it can vanish
+  // inside that window — leaving a saved connection whose refresh token is
+  // already gone. Undo rather than store a dead link.
+  if (!(await grantExists(input.userId, input.accountId))) {
+    await GoogleAdsConnectionRepository.deleteByProjectId(input.projectId);
+    throw new AppError(
+      "NOT_FOUND",
+      "That Google account was disconnected while saving. Reconnect and try again.",
     );
+  }
+  return connection;
 }
 
 async function disconnect(input: {
@@ -363,18 +367,11 @@ async function disconnect(input: {
     input.projectId,
   );
   await GoogleAdsConnectionRepository.deleteByProjectId(input.projectId);
-  if (
-    connection?.googleAdsAccountId &&
-    connection.connectedByUserId === input.userId
-  ) {
-    const stillUsed =
-      await GoogleAdsConnectionRepository.existsForConnectorAccount(
-        input.userId,
-        connection.googleAdsAccountId,
-      );
-    if (!stillUsed) {
-      await unlinkUserGrant(input.userId, connection.googleAdsAccountId);
-    }
+  if (connection && connection.connectedByUserId === input.userId) {
+    await GoogleAdsConnectionRepository.unlinkGrantIfUnused(
+      input.userId,
+      connection.googleAdsAccountId,
+    );
   }
 }
 

@@ -1,6 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notExists, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { googleAdsConnections } from "@/db/schema";
+import { account, googleAdsConnections } from "@/db/schema";
+import { GOOGLE_ADS_OAUTH_PROVIDER_ID } from "@/shared/google-ads";
 
 export type GoogleAdsConnection = typeof googleAdsConnections.$inferSelect;
 
@@ -59,26 +60,38 @@ async function deleteByProjectId(projectId: string): Promise<void> {
     .where(eq(googleAdsConnections.projectId, projectId));
 }
 
-async function existsForConnectorAccount(
+/** Release the user's Google Ads grant, but only when no project of theirs
+ *  still points at it. The "is anyone else using it" test and the delete are a
+ *  single statement on purpose: reading it separately leaves a window in which
+ *  another project connecting on the same Google login has its refresh token
+ *  deleted out from under it. */
+async function unlinkGrantIfUnused(
   userId: string,
   googleAdsAccountId: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({ id: googleAdsConnections.id })
-    .from(googleAdsConnections)
-    .where(
-      and(
-        eq(googleAdsConnections.connectedByUserId, userId),
-        eq(googleAdsConnections.googleAdsAccountId, googleAdsAccountId),
+): Promise<void> {
+  await db.delete(account).where(
+    and(
+      eq(account.userId, userId),
+      eq(account.providerId, GOOGLE_ADS_OAUTH_PROVIDER_ID),
+      eq(account.accountId, googleAdsAccountId),
+      notExists(
+        db
+          .select({ id: googleAdsConnections.id })
+          .from(googleAdsConnections)
+          .where(
+            and(
+              eq(googleAdsConnections.connectedByUserId, userId),
+              eq(googleAdsConnections.googleAdsAccountId, googleAdsAccountId),
+            ),
+          ),
       ),
-    )
-    .limit(1);
-  return rows.length > 0;
+    ),
+  );
 }
 
 export const GoogleAdsConnectionRepository = {
   getByProjectId,
   upsert,
   deleteByProjectId,
-  existsForConnectorAccount,
+  unlinkGrantIfUnused,
 };
