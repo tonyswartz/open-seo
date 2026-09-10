@@ -163,6 +163,9 @@ describe("local services MCP tools", () => {
           consumerName: null,
           consumerPhoneNumber: "+15095551234",
           consumerEmail: null,
+          creditState: "CREDITED",
+          leadFeedbackSubmitted: true,
+          conversationDurationMillis: 142_000,
         },
       ],
     });
@@ -172,6 +175,8 @@ describe("local services MCP tools", () => {
       toolContext,
     );
     expect(textContent(listed)).toContain("+15095551234");
+    expect(textContent(listed)).toContain("CREDITED");
+    expect(textContent(listed)).toContain("142s");
     expect(listed.structuredContent).toMatchObject({ ok: true, leadCount: 1 });
 
     mocks.listLeads.mockRejectedValue(

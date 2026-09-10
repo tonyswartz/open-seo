@@ -292,6 +292,11 @@ const leadsInputSchema = {
 
 type LeadsArgs = z.infer<z.ZodObject<typeof leadsInputSchema>>;
 
+function formatCallDuration(millis: number | null): string {
+  if (millis == null) return "—";
+  return `${Math.round(millis / 1000)}s`;
+}
+
 const LEAD_COLUMNS: McpTableColumn<LocalServicesLead>[] = [
   {
     header: "created",
@@ -302,6 +307,23 @@ const LEAD_COLUMNS: McpTableColumn<LocalServicesLead>[] = [
   {
     header: "charged",
     value: (row) => (row.charged ? "yes" : "no"),
+  },
+  {
+    header: "credit",
+    value: (row) => row.creditState ?? "—",
+  },
+  {
+    header: "feedback",
+    value: (row) =>
+      row.leadFeedbackSubmitted == null
+        ? "—"
+        : row.leadFeedbackSubmitted
+          ? "yes"
+          : "no",
+  },
+  {
+    header: "duration",
+    value: (row) => formatCallDuration(row.conversationDurationMillis),
   },
   {
     header: "contact",
@@ -315,7 +337,7 @@ export const getLocalServicesLeadsTool = {
   config: {
     title: "List Local Services Ads leads",
     description:
-      "List the connected Google Ads account's Local Services Ads leads, newest first: type (call/message/booking), status (e.g. NEW, BOOKED), whether the lead was charged, and the consumer's contact details. Lead contents are customer PII — handle accordingly. Read-only; uses no credits.",
+      "List the connected Google Ads account's Local Services Ads leads, newest first: type (call/message/booking), status (e.g. NEW, BOOKED), whether the lead was charged, Google credit_state (CREDITED/PENDING when present), whether feedback was already submitted, phone-call duration in milliseconds, and the consumer's contact details. Does not return call recordings. Lead contents are customer PII — handle accordingly. Read-only; uses no credits.",
     inputSchema: leadsInputSchema,
     outputSchema: {
       ok: z.boolean(),
@@ -340,6 +362,9 @@ export const getLocalServicesLeadsTool = {
               consumerName: z.string().nullable(),
               consumerPhoneNumber: z.string().nullable(),
               consumerEmail: z.string().nullable(),
+              creditState: z.string().nullable(),
+              leadFeedbackSubmitted: z.boolean().nullable(),
+              conversationDurationMillis: z.number().nullable(),
             })
             .passthrough(),
         )
