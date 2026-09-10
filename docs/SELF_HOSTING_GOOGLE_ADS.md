@@ -2,9 +2,9 @@
 
 Connecting Google Ads lets OpenSEO report on Local Services Ads (LSA): leads,
 spend, cost per lead, and budget pacing, in the dashboard and through the
-`get_local_services_performance` / `get_local_services_leads` MCP tools. The
-connection is optional and strictly read-only — OpenSEO never mutates
-campaigns, budgets, or leads.
+`get_local_services_performance` / `get_local_services_leads` MCP tools, and
+file a one-shot lead-feedback survey through `provide_lead_feedback`. The
+connection is optional. OpenSEO never mutates campaigns or budgets.
 
 ## What you'll need
 
@@ -61,8 +61,10 @@ The token is server-only; it is never exposed to the browser.
 
 Open the project's **Settings → Integrations → Local Services Ads** card and
 click **Connect with Google**. Google asks for the `adwords` scope (Google Ads
-has no narrower read-only scope; OpenSEO only ever issues report queries).
-After consent, pick the Ads account that holds the Local Services campaigns —
+has no narrower read-only scope). OpenSEO issues report queries and, through
+`provide_lead_feedback`, one irreversible lead-feedback survey. It never
+changes campaigns or budgets. After consent, pick the Ads account that holds
+the Local Services campaigns —
 accounts where OpenSEO detects LSA campaigns are badged. Accounts reached
 through a manager are queried with the manager set as `login-customer-id`
 automatically.

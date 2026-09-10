@@ -3,6 +3,7 @@ import { GoogleAdsReportError } from "@/server/lib/googleAdsErrors";
 import {
   getLocalServicesLeadsTool,
   getLocalServicesPerformanceTool,
+  provideLeadFeedbackTool,
 } from "./local-services-tools";
 import { makeToolContext, textContent } from "./tool-test-support";
 
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   hasSelfHostedGoogleOAuthConfig: vi.fn(),
   getPerformance: vi.fn(),
   listLeads: vi.fn(),
+  provideLeadFeedback: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -28,12 +30,17 @@ vi.mock("@/server/features/projects/services/ProjectService", () => ({
 }));
 vi.mock(
   "@/server/features/google-ads/services/LocalServicesReportingService",
-  () => ({
-    LocalServicesReportingService: {
-      getPerformance: mocks.getPerformance,
-      listLeads: mocks.listLeads,
-    },
-  }),
+  async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    return {
+      ...actual,
+      LocalServicesReportingService: {
+        getPerformance: mocks.getPerformance,
+        listLeads: mocks.listLeads,
+        provideLeadFeedback: mocks.provideLeadFeedback,
+      },
+    };
+  },
 );
 
 const toolContext = makeToolContext();
@@ -181,6 +188,68 @@ describe("local services MCP tools", () => {
     expect(notConnected.structuredContent).toMatchObject({
       ok: false,
       reason: "google_ads_not_connected",
+    });
+  });
+
+  it("returns creditIssuanceDecision verbatim after filing", async () => {
+    mocks.provideLeadFeedback.mockResolvedValue({
+      leadId: "338539166",
+      creditIssuanceDecision: "SUCCESS_NOT_REACHED_THRESHOLD",
+      leadFeedbackSubmitted: true,
+      creditState: "PENDING",
+      charged: true,
+    });
+
+    const result = await provideLeadFeedbackTool.handler(
+      {
+        projectId: "project_1",
+        leadId: "338539166",
+        surveyAnswer: "VERY_DISSATISFIED",
+        surveyDissatisfiedReason: "JOB_TYPE_MISMATCH",
+      },
+      toolContext,
+    );
+
+    expect(mocks.provideLeadFeedback).toHaveBeenCalledWith({
+      projectId: "project_1",
+      leadId: "338539166",
+      surveyAnswer: "VERY_DISSATISFIED",
+      surveyDissatisfiedReason: "JOB_TYPE_MISMATCH",
+      surveySatisfiedReason: undefined,
+      otherReasonComment: undefined,
+    });
+    expect(textContent(result)).toContain("SUCCESS_NOT_REACHED_THRESHOLD");
+    expect(textContent(result)).toContain("lead_feedback_submitted=true");
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      leadId: "338539166",
+      creditIssuanceDecision: "SUCCESS_NOT_REACHED_THRESHOLD",
+      leadFeedbackSubmitted: true,
+    });
+  });
+
+  it("surfaces an already-submitted lead without calling it a reconnect", async () => {
+    mocks.provideLeadFeedback.mockRejectedValue(
+      new GoogleAdsReportError(
+        "lead_feedback_already_submitted",
+        "Feedback was already submitted for lead 338539166. Google accepts one survey per lead.",
+      ),
+    );
+
+    const result = await provideLeadFeedbackTool.handler(
+      {
+        projectId: "project_1",
+        leadId: "338539166",
+        surveyAnswer: "VERY_DISSATISFIED",
+        surveyDissatisfiedReason: "JOB_TYPE_MISMATCH",
+      },
+      toolContext,
+    );
+
+    expect(textContent(result)).toContain("already submitted");
+    expect(result.structuredContent).toMatchObject({
+      ok: false,
+      reason: "lead_feedback_already_submitted",
     });
   });
 });

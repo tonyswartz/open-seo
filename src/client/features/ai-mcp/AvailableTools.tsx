@@ -203,6 +203,12 @@ const toolCategories: ToolCategory[] = [
         description:
           "List LSA leads with type, status, charged state, and contact info.",
       },
+      {
+        name: "provide_lead_feedback",
+        title: "Provide Local Services lead feedback",
+        description:
+          "File a one-shot LSA lead-feedback survey. Live and irreversible.",
+      },
     ],
   },
   {

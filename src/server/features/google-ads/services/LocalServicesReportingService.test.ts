@@ -6,6 +6,7 @@ import type { GoogleAdsConnection } from "@/server/features/google-ads/repositor
 const mocks = vi.hoisted(() => ({
   getByProjectId: vi.fn(),
   search: vi.fn(),
+  provideLeadFeedback: vi.fn(),
 }));
 
 vi.mock(
@@ -15,7 +16,10 @@ vi.mock(
   }),
 );
 vi.mock("@/server/lib/googleAdsClient", () => ({
-  createGoogleAdsClient: () => ({ search: mocks.search }),
+  createGoogleAdsClient: () => ({
+    search: mocks.search,
+    provideLeadFeedback: mocks.provideLeadFeedback,
+  }),
 }));
 
 function makeConnection(
@@ -260,5 +264,165 @@ describe("LocalServicesReportingService", () => {
     await expect(
       LocalServicesReportingService.listLeads({ ...range, limit: 50 }),
     ).rejects.toMatchObject({ code: "google_ads_upstream_unavailable" });
+  });
+});
+
+const feedback = {
+  projectId: "project_1",
+  leadId: "338539166",
+  surveyAnswer: "VERY_DISSATISFIED" as const,
+  surveyDissatisfiedReason: "JOB_TYPE_MISMATCH" as const,
+};
+
+describe("LocalServicesReportingService.provideLeadFeedback", () => {
+  beforeEach(() => {
+    mocks.getByProjectId.mockResolvedValue(makeConnection());
+    mocks.provideLeadFeedback.mockResolvedValue({
+      creditIssuanceDecision: "SUCCESS_NOT_REACHED_THRESHOLD",
+    });
+  });
+
+  it("rejects a non-numeric leadId before any API call", async () => {
+    await expect(
+      LocalServicesReportingService.provideLeadFeedback({
+        ...feedback,
+        leadId: "customers/1/localServicesLeads/2",
+      }),
+    ).rejects.toMatchObject({ code: "validation_error" });
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.provideLeadFeedback).not.toHaveBeenCalled();
+  });
+
+  it("rejects a dissatisfied survey without a reason", async () => {
+    await expect(
+      LocalServicesReportingService.provideLeadFeedback({
+        projectId: "project_1",
+        leadId: "338539166",
+        surveyAnswer: "VERY_DISSATISFIED",
+      }),
+    ).rejects.toMatchObject({ code: "validation_error" });
+    expect(mocks.provideLeadFeedback).not.toHaveBeenCalled();
+  });
+
+  it("refuses when lead_feedback_submitted is already true", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("lead_feedback_submitted")) {
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "338539166",
+              leadCharged: true,
+              leadFeedbackSubmitted: true,
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    await expect(
+      LocalServicesReportingService.provideLeadFeedback(feedback),
+    ).rejects.toMatchObject({ code: "lead_feedback_already_submitted" });
+    expect(mocks.provideLeadFeedback).not.toHaveBeenCalled();
+  });
+
+  it("files a dissatisfied survey and returns the post-file re-read", async () => {
+    let feedbackReads = 0;
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("lead_feedback_submitted")) {
+        feedbackReads += 1;
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "338539166",
+              leadCharged: true,
+              leadFeedbackSubmitted: feedbackReads > 1,
+            },
+          },
+        ]);
+      }
+      if (query.includes("credit_details.credit_state")) {
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "338539166",
+              creditDetails: { creditState: "PENDING" },
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const result =
+      await LocalServicesReportingService.provideLeadFeedback(feedback);
+
+    expect(mocks.provideLeadFeedback).toHaveBeenCalledWith(
+      "1234567890",
+      "338539166",
+      {
+        surveyAnswer: "VERY_DISSATISFIED",
+        surveyDissatisfied: { surveyDissatisfiedReason: "JOB_TYPE_MISMATCH" },
+      },
+      { loginCustomerId: "2930000000" },
+    );
+    expect(result).toEqual({
+      leadId: "338539166",
+      creditIssuanceDecision: "SUCCESS_NOT_REACHED_THRESHOLD",
+      leadFeedbackSubmitted: true,
+      creditState: "PENDING",
+      charged: true,
+    });
+  });
+
+  it("still files when the credit_state leaf is SELECT-prohibited", async () => {
+    mocks.search.mockImplementation((_customerId: string, query: string) => {
+      if (query.includes("credit_details.credit_state")) {
+        return Promise.reject(
+          new GoogleAdsApiError(
+            400,
+            "Google Ads API error (400).",
+            "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+            "The following field may not be used in SELECT clause: 'local_services_lead.credit_details.credit_state'.",
+          ),
+        );
+      }
+      if (query.includes("lead_feedback_submitted")) {
+        return Promise.resolve([
+          {
+            localServicesLead: {
+              id: "338539166",
+              leadCharged: true,
+              leadFeedbackSubmitted: false,
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result =
+      await LocalServicesReportingService.provideLeadFeedback(feedback);
+
+    expect(result.creditIssuanceDecision).toBe("SUCCESS_NOT_REACHED_THRESHOLD");
+    expect(result.creditState).toBeNull();
+    expect(mocks.provideLeadFeedback).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith(
+      "google_ads.credit_state_unreadable",
+      expect.objectContaining({
+        leadId: "338539166",
+        reason: "PROHIBITED_FIELD_IN_SELECT_CLAUSE",
+      }),
+    );
+    log.mockRestore();
+  });
+
+  it("does not file a missing lead", async () => {
+    mocks.search.mockResolvedValue([]);
+    await expect(
+      LocalServicesReportingService.provideLeadFeedback(feedback),
+    ).rejects.toMatchObject({ code: "lead_not_found" });
+    expect(mocks.provideLeadFeedback).not.toHaveBeenCalled();
   });
 });
