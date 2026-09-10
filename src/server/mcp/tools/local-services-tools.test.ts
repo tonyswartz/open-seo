@@ -100,6 +100,26 @@ describe("local services MCP tools", () => {
     });
   });
 
+  it("tells the caller a rejected report is not worth retrying", async () => {
+    mocks.getPerformance.mockRejectedValue(
+      new GoogleAdsReportError(
+        "google_ads_request_rejected",
+        "Google Ads rejected this report request. Retrying won't help.",
+      ),
+    );
+
+    const result = await getLocalServicesPerformanceTool.handler(
+      { projectId: "project_1" },
+      toolContext,
+    );
+
+    expect(textContent(result)).toContain("Retrying won't help");
+    expect(result.structuredContent).toMatchObject({
+      ok: false,
+      reason: "google_ads_request_rejected",
+    });
+  });
+
   it("reports pending Google approval as expected state, not an error", async () => {
     mocks.getPerformance.mockRejectedValue(
       new GoogleAdsReportError(

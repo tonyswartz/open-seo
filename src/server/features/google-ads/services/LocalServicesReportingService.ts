@@ -157,6 +157,12 @@ function mapGoogleAdsError(
         error.message,
       );
     }
+    if (error.status === 400) {
+      return new GoogleAdsReportError(
+        "google_ads_request_rejected",
+        "Google Ads rejected this report request. Retrying won't help.",
+      );
+    }
     return new GoogleAdsReportError(
       "google_ads_upstream_unavailable",
       error.message,

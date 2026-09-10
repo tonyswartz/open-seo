@@ -68,6 +68,13 @@ export function LocalServicesCard({ projectId }: { projectId: string }) {
           Waiting on Google&rsquo;s Ads API access approval. Data appears here
           automatically once Google finishes onboarding.
         </p>
+      ) : report?.connected &&
+        "requestRejected" in report &&
+        report.requestRejected ? (
+        <p className="text-sm text-base-content/60">
+          Couldn&rsquo;t load Local Services data. Google rejected the report
+          request, so retrying won&rsquo;t help.
+        </p>
       ) : report?.connected && report.performance ? (
         <Performance performance={report.performance} />
       ) : (
