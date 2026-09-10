@@ -54,7 +54,11 @@ async function getConnection(
 
 async function listGrantsForUser(userId: string) {
   return db
-    .select({ id: account.id, accountId: account.accountId })
+    .select({
+      id: account.id,
+      accountId: account.accountId,
+      scope: account.scope,
+    })
     .from(account)
     .where(
       and(
@@ -86,6 +90,26 @@ function accessPending(error: unknown): boolean {
   );
 }
 
+/** Grant-wide failures (expired grant, missing config, Google-side
+ *  onboarding) abort discovery so the caller can classify them; anything else
+ *  is treated as one bad account and skipped. */
+function abortsDiscovery(error: unknown): boolean {
+  return (
+    requiresReconnect(error) ||
+    accessPending(error) ||
+    error instanceof GoogleAdsConfigError
+  );
+}
+
+function errorLogDetails(error: unknown) {
+  return {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    status: error instanceof GoogleAdsApiError ? error.status : undefined,
+    reason:
+      error instanceof GoogleAdsApiError ? error.upstreamReason : undefined,
+  };
+}
+
 async function hasLocalServicesCampaigns(
   client: ReturnType<typeof createGoogleAdsClient>,
   customerId: string,
@@ -102,19 +126,32 @@ async function hasLocalServicesCampaigns(
 }
 
 /** Expand one grant into selectable Ads accounts: directly-accessible
- *  customers plus the first level of clients under any accessible manager,
- *  each probed for Local Services campaigns. Per-account failures degrade to
- *  an unprobed candidate instead of failing the whole listing. */
+ *  customers plus every enabled non-manager client under any accessible
+ *  manager, each probed for Local Services campaigns. A failure on a single
+ *  account is logged and skipped — unless nothing survives, in which case the
+ *  first failure is rethrown so the caller classifies a real access problem
+ *  instead of reporting a (misleading) empty account list. */
 async function listAccountsForGrant(input: {
   userId: string;
   googleAdsAccountId: string;
 }): Promise<GoogleAdsAccountCandidate[]> {
   const client = createGoogleAdsClient(input);
-  const accessible = (await client.listAccessibleCustomers()).slice(
-    0,
-    MAX_ACCESSIBLE_CUSTOMERS,
-  );
+  const allAccessible = await client.listAccessibleCustomers();
+  const accessible = allAccessible.slice(0, MAX_ACCESSIBLE_CUSTOMERS);
+  console.info("google_ads.accessible_customers", {
+    count: allAccessible.length,
+    customerIds: accessible,
+  });
   const candidates: GoogleAdsAccountCandidate[] = [];
+  const skipErrors: unknown[] = [];
+  const skip = (customerId: string, step: string, error: unknown) => {
+    skipErrors.push(error);
+    console.warn("google_ads.customer_skipped", {
+      customerId,
+      step,
+      ...errorLogDetails(error),
+    });
+  };
   for (const customerId of accessible) {
     let customer: z.infer<typeof customerRowSchema>["customer"] | null = null;
     try {
@@ -124,10 +161,8 @@ async function listAccountsForGrant(input: {
       );
       customer = rows[0] ? customerRowSchema.parse(rows[0]).customer : null;
     } catch (error) {
-      if (requiresReconnect(error) || error instanceof GoogleAdsConfigError) {
-        throw error;
-      }
-      // Canceled or restricted account on the grant: skip it, keep the rest.
+      if (abortsDiscovery(error)) throw error;
+      skip(customerId, "customer", error);
       continue;
     }
     if (!customer) continue;
@@ -139,18 +174,24 @@ async function listAccountsForGrant(input: {
           `SELECT customer_client.client_customer, customer_client.descriptive_name,
                   customer_client.manager, customer_client.currency_code
            FROM customer_client
-           WHERE customer_client.level = 1 AND customer_client.status = 'ENABLED'`,
+           WHERE customer_client.level >= 1 AND customer_client.status = 'ENABLED'`,
           { loginCustomerId: customerId },
         );
         clients = rows.map((row) => customerClientRowSchema.parse(row));
       } catch (error) {
-        if (requiresReconnect(error) || error instanceof GoogleAdsConfigError) {
-          throw error;
-        }
+        if (abortsDiscovery(error)) throw error;
+        skip(customerId, "customer_client", error);
         continue;
       }
-      for (const { customerClient } of clients) {
-        if (customerClient.manager) continue;
+      const eligible = clients.filter(
+        ({ customerClient }) => !customerClient.manager,
+      );
+      console.info("google_ads.manager_expanded", {
+        managerId: customerId,
+        clientRows: clients.length,
+        eligible: eligible.length,
+      });
+      for (const { customerClient } of eligible) {
         candidates.push({
           customerId: customerClient.clientCustomer.replace(/^customers\//, ""),
           loginCustomerId: customerId,
@@ -170,6 +211,9 @@ async function listAccountsForGrant(input: {
     }
   }
   const bounded = candidates.slice(0, MAX_CANDIDATE_ACCOUNTS);
+  if (bounded.length === 0 && skipErrors.length > 0) {
+    throw skipErrors[0];
+  }
   await Promise.all(
     bounded.map(async (candidate) => {
       try {
@@ -183,6 +227,11 @@ async function listAccountsForGrant(input: {
       }
     }),
   );
+  console.info("google_ads.account_discovery", {
+    accessible: accessible.length,
+    candidates: bounded.length,
+    skipped: skipErrors.length,
+  });
   return bounded;
 }
 
@@ -190,6 +239,10 @@ async function listAccountsForUserWithGrantStatus(userId: string) {
   const grants = await listGrantsForUser(userId);
   const accounts = await Promise.all(
     grants.map(async (grant) => {
+      console.info("google_ads.grant_discovery", {
+        googleAccountId: grant.accountId,
+        scope: grant.scope ?? null,
+      });
       const client = createGoogleAdsClient({
         userId,
         googleAdsAccountId: grant.accountId,
@@ -218,15 +271,10 @@ async function listAccountsForUserWithGrantStatus(userId: string) {
         const pending =
           accessPending(error) || error instanceof GoogleAdsConfigError;
         if (!reconnect && !pending) {
-          console.error("google_ads.account_discovery_failed", {
-            errorName: error instanceof Error ? error.name : "UnknownError",
-            status:
-              error instanceof GoogleAdsApiError ? error.status : undefined,
-            reason:
-              error instanceof GoogleAdsApiError
-                ? error.upstreamReason
-                : undefined,
-          });
+          console.error(
+            "google_ads.account_discovery_failed",
+            errorLogDetails(error),
+          );
         }
         return {
           accountId: grant.accountId,
