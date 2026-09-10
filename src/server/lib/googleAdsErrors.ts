@@ -74,6 +74,9 @@ type GoogleAdsReportErrorCode =
   | "google_ads_access_pending"
   | "google_ads_account_inaccessible"
   | "google_ads_quota_exhausted"
+  // Google 400 / INVALID_ARGUMENT: the request itself is rejected (bad field,
+  // bad query). Retrying the same call cannot succeed.
+  | "google_ads_request_rejected"
   | "google_ads_upstream_unavailable"
   | "google_ads_malformed_response";
 

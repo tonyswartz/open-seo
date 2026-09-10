@@ -224,7 +224,7 @@ describe("LocalServicesReportingService", () => {
     ).rejects.toMatchObject({ code: "google_ads_access_pending" });
   });
 
-  it("logs Google's own explanation before surfacing the generic error", async () => {
+  it("maps a Google 400 to request_rejected, not an outage, and still logs the real reason", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.search.mockRejectedValue(
       new GoogleAdsApiError(
@@ -236,7 +236,10 @@ describe("LocalServicesReportingService", () => {
     );
     await expect(
       LocalServicesReportingService.listLeads({ ...range, limit: 50 }),
-    ).rejects.toMatchObject({ code: "google_ads_upstream_unavailable" });
+    ).rejects.toMatchObject({
+      code: "google_ads_request_rejected",
+      message: "Google Ads rejected this report request. Retrying won't help.",
+    });
     expect(log).toHaveBeenCalledWith(
       "google_ads.report_failed",
       expect.objectContaining({
@@ -248,5 +251,14 @@ describe("LocalServicesReportingService", () => {
           "The following field may not be used in SELECT clause: 'local_services_lead.credit_details'.",
       }),
     );
+  });
+
+  it("still maps a Google 503 to google_ads_upstream_unavailable", async () => {
+    mocks.search.mockRejectedValue(
+      new GoogleAdsApiError(503, "Google Ads API error (503)."),
+    );
+    await expect(
+      LocalServicesReportingService.listLeads({ ...range, limit: 50 }),
+    ).rejects.toMatchObject({ code: "google_ads_upstream_unavailable" });
   });
 });
