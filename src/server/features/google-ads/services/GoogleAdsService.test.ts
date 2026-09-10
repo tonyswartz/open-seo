@@ -192,6 +192,7 @@ describe("GoogleAdsService.listAccountsForUserWithGrantStatus", () => {
         loginCustomerId: "9999999999",
         descriptiveName: "LSA Account",
         currencyCode: "USD",
+        timeZone: null,
         hasLocalServicesCampaigns: true,
       },
     ]);

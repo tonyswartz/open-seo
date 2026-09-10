@@ -169,6 +169,13 @@
       "when": 1788993741545,
       "tag": "0023_google_ads_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789006590738,
+      "tag": "0024_blushing_the_captain",
+      "breakpoints": true
     }
   ]
 }

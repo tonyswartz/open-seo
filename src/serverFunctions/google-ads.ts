@@ -75,14 +75,10 @@ export const getLocalServicesDashboardReport = createServerFn({
   .validator(projectScopedSchema)
   .handler(async ({ context }) => {
     try {
-      const endDate = new Date().toISOString().slice(0, 10);
-      const startDate = new Date(Date.now() - 27 * 24 * 60 * 60 * 1_000)
-        .toISOString()
-        .slice(0, 10);
+      // No range: the service builds the last 28 days from the Ads account's
+      // own time zone, which is the one Google reads segments.date in.
       const performance = await LocalServicesReportingService.getPerformance({
         projectId: context.projectId,
-        startDate,
-        endDate,
       });
       return { connected: true as const, accessPending: false, performance };
     } catch (error) {

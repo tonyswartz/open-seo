@@ -1,0 +1,1 @@
+ALTER TABLE "google_ads_connections" ADD COLUMN "time_zone" text;

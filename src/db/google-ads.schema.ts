@@ -22,6 +22,9 @@ export const googleAdsConnections = sqliteTable(
     loginCustomerId: text("login_customer_id"),
     customerDescriptiveName: text("customer_descriptive_name"),
     currencyCode: text("currency_code"),
+    // IANA zone the Ads account reports in. Google evaluates segments.date
+    // against it, so report windows are built from this, not server UTC.
+    timeZone: text("time_zone"),
     connectedByUserId: text("connected_by_user_id").notNull(),
     googleAdsAccountId: text("google_ads_account_id").notNull(),
     connectedAccountEmail: text("connected_account_email"),

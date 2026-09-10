@@ -23,6 +23,7 @@ async function upsert(input: {
   loginCustomerId: string | null;
   customerDescriptiveName: string | null;
   currencyCode: string | null;
+  timeZone: string | null;
   connectedByUserId: string;
   googleAdsAccountId: string;
   connectedAccountEmail: string | null;
@@ -38,6 +39,7 @@ async function upsert(input: {
         loginCustomerId: input.loginCustomerId,
         customerDescriptiveName: input.customerDescriptiveName,
         currencyCode: input.currencyCode,
+        timeZone: input.timeZone,
         connectedByUserId: input.connectedByUserId,
         googleAdsAccountId: input.googleAdsAccountId,
         connectedAccountEmail: sql`case
