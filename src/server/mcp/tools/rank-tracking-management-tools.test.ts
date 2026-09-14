@@ -155,7 +155,12 @@ describe("rank tracking management MCP tools", () => {
     });
 
     const added = await addRankTrackingKeywordsTool.handler(
-      { projectId, trackerId, keywords: ["seo", "SEO", "existing"] },
+      {
+        projectId,
+        trackerId,
+        keywords: ["seo", "SEO", "existing"],
+        matchCase: true,
+      },
       toolContext,
     );
     expect(textContent(added)).toContain("Added 1 of 3 requested");
@@ -168,6 +173,7 @@ describe("rank tracking management MCP tools", () => {
         kind: "credit_ceiling",
         maxEstimatedScheduledCheckCredits: undefined,
       },
+      true,
     );
 
     const removed = await removeRankTrackingKeywordsTool.handler(

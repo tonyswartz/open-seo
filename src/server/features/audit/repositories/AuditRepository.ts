@@ -22,6 +22,7 @@ import type {
   CrawledPageResult,
   LighthouseResult,
 } from "@/server/lib/audit/types";
+import type { PageFetchClass } from "@/shared/audit-fetch-class";
 
 async function createAudit(data: {
   id: string;
@@ -309,17 +310,20 @@ async function getPagesForAudit(auditId: string) {
     .where(eq(auditPages.auditId, auditId));
 }
 
-async function countBlockedPages(auditId: string): Promise<number> {
+async function countPagesByFetchClass(
+  auditId: string,
+  fetchClass: PageFetchClass,
+): Promise<number> {
   const rows = await db
-    .select({ blocked: count() })
+    .select({ pages: count() })
     .from(auditPages)
     .where(
       and(
         eq(auditPages.auditId, auditId),
-        eq(auditPages.fetchClass, "blocked"),
+        eq(auditPages.fetchClass, fetchClass),
       ),
     );
-  return rows[0]?.blocked ?? 0;
+  return rows[0]?.pages ?? 0;
 }
 
 async function hasPagesForAudit(auditId: string): Promise<boolean> {
@@ -439,7 +443,7 @@ export const AuditRepository = {
   getLatestAuditForProject,
   getIssuesForAudit,
   getPagesForAudit,
-  countBlockedPages,
+  countPagesByFetchClass,
   hasPagesForAudit,
   getAuditsByProject,
   getAuditUsageForOrganization,

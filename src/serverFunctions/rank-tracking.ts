@@ -193,6 +193,7 @@ export const addTrackingKeywords = createServerFn({ method: "POST" })
       context.projectId,
       data.keywords,
       { kind: "direct_user_action" },
+      data.matchCase,
     );
 
     let checkTriggered = false;

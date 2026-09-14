@@ -40,7 +40,7 @@ function createBacklinksService(cache: BacklinksCache = defaultCache) {
     async profileOverview(
       input: BacklinksLookupInput,
       billingCustomer: BillingCustomerContext,
-      // Lets a caller (e.g. onboarding) attribute the spend to its own credit
+      // Lets a caller (e.g. the SAM agent) attribute the spend to its own credit
       // feature. Applied to the DataForSEO calls, not the cache key, so cached
       // results stay shared across callers.
       creditFeature?: CreditFeature,

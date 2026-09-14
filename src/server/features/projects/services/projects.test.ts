@@ -3,11 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   updateProject: vi.fn(),
-  updateProjectDomain: vi.fn(),
+  updateProjectWebsite: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
   countProjects: vi.fn(),
-  updateProjectMarket: vi.fn(),
   getProjectForOrganization: vi.fn(),
   listProjects: vi.fn(),
   listArchivedProjects: vi.fn(),
@@ -76,6 +75,50 @@ describe("project service", () => {
       await expect(listProjectsEnsuringOne("org_1")).resolves.toEqual([
         defaultProject,
       ]);
+    });
+  });
+
+  describe("setProjectWebsite", () => {
+    it("saves normalized domain and market in one write without changing the name", async () => {
+      mocks.updateProjectWebsite.mockResolvedValue(namedProject);
+      const { setProjectWebsite } = await import("./projects");
+      await setProjectWebsite("org_1", {
+        projectId: "project_acme",
+        domain: "https://www.acme.com/about",
+        locationCode: 2826,
+        languageCode: "en",
+      });
+      expect(mocks.updateProjectWebsite).toHaveBeenCalledWith(
+        "project_acme",
+        "org_1",
+        "acme.com",
+        { locationCode: 2826, languageCode: "en" },
+      );
+      expect(mocks.updateProject).not.toHaveBeenCalled();
+    });
+    it("rejects an invalid website before writing", async () => {
+      const { setProjectWebsite } = await import("./projects");
+      await expect(
+        setProjectWebsite("org_1", {
+          projectId: "project_acme",
+          domain: "not a domain",
+          locationCode: 2840,
+          languageCode: "en",
+        }),
+      ).rejects.toThrow();
+      expect(mocks.updateProjectWebsite).not.toHaveBeenCalled();
+    });
+    it("rejects a mismatched market before writing the website", async () => {
+      const { setProjectWebsite } = await import("./projects");
+      await expect(
+        setProjectWebsite("org_1", {
+          projectId: "project_acme",
+          domain: "acme.com",
+          locationCode: 2826,
+          languageCode: "fr",
+        }),
+      ).rejects.toThrow();
+      expect(mocks.updateProjectWebsite).not.toHaveBeenCalled();
     });
   });
 
@@ -209,36 +252,6 @@ describe("project service", () => {
     });
   });
 
-  describe("setProjectDomain", () => {
-    it("canonicalizes a pasted URL to the bare host before writing", async () => {
-      mocks.updateProjectDomain.mockResolvedValue(namedProject);
-      const { setProjectDomain } = await import("./projects");
-
-      await setProjectDomain("org_1", {
-        projectId: "project_acme",
-        domain: "https://www.Acme.com/pricing?ref=x",
-      });
-
-      expect(mocks.updateProjectDomain).toHaveBeenCalledWith(
-        "project_acme",
-        "org_1",
-        "acme.com",
-      );
-    });
-
-    it("rejects junk that the backlink fetch would later refuse", async () => {
-      const { setProjectDomain } = await import("./projects");
-
-      await expect(
-        setProjectDomain("org_1", {
-          projectId: "project_acme",
-          domain: "not a domain",
-        }),
-      ).rejects.toThrow("Enter a valid domain");
-      expect(mocks.updateProjectDomain).not.toHaveBeenCalled();
-    });
-  });
-
   describe("updateProject domain validation", () => {
     it("rejects a junk domain instead of storing it", async () => {
       const { updateProject } = await import("./projects");
@@ -251,45 +264,6 @@ describe("project service", () => {
         }),
       ).rejects.toThrow("Enter a valid domain");
       expect(mocks.updateProject).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("setProjectMarket", () => {
-    it("writes only the market columns, leaving name and domain untouched", async () => {
-      // Onboarding sets the market before the project is named or given a
-      // domain; going through updateProject would clear the domain.
-      mocks.updateProjectMarket.mockResolvedValue({
-        ...namedProject,
-        locationCode: 2704,
-        languageCode: "vi",
-      });
-      const { setProjectMarket } = await import("./projects");
-
-      await setProjectMarket("org_1", {
-        projectId: "project_acme",
-        locationCode: 2704,
-        languageCode: "vi",
-      });
-
-      expect(mocks.updateProjectMarket).toHaveBeenCalledWith(
-        "project_acme",
-        "org_1",
-        { locationCode: 2704, languageCode: "vi" },
-      );
-      expect(mocks.updateProject).not.toHaveBeenCalled();
-    });
-
-    it("rejects a language the location does not serve before any write", async () => {
-      const { setProjectMarket } = await import("./projects");
-
-      await expect(
-        setProjectMarket("org_1", {
-          projectId: "project_acme",
-          locationCode: 2840,
-          languageCode: "vi",
-        }),
-      ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
-      expect(mocks.updateProjectMarket).not.toHaveBeenCalled();
     });
   });
 

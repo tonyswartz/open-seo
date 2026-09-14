@@ -893,6 +893,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "match_case": {
+          "name": "match_case",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "search_volume": {
           "name": "search_volume",
           "type": "integer",

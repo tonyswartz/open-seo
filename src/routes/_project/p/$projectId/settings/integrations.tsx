@@ -1,3 +1,8 @@
+import { queryClient } from "@/client/tanstack-db/queryClient";
+import {
+  gscConnectionOptions,
+  ga4ConnectionOptions,
+} from "@/client/features/integrations/googleConnectionQueries";
 import { createFileRoute } from "@tanstack/react-router";
 import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsoleConnectionCard";
 import { GoogleAnalyticsConnectionCard } from "@/client/features/ga4/GoogleAnalyticsConnectionCard";
@@ -6,6 +11,11 @@ import { GoogleAdsConnectionCard } from "@/client/features/google-ads/GoogleAdsC
 export const Route = createFileRoute(
   "/_project/p/$projectId/settings/integrations",
 )({
+  loader: ({ params }) => {
+    // Start both database checks on link intent without holding up navigation.
+    void queryClient.prefetchQuery(gscConnectionOptions(params.projectId));
+    void queryClient.prefetchQuery(ga4ConnectionOptions(params.projectId));
+  },
   component: ProjectIntegrationsRoute,
 });
 

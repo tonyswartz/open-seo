@@ -3,6 +3,7 @@
  */
 
 import { z } from "zod";
+import type { PageFetchClass } from "@/shared/audit-fetch-class";
 import { MIN_AUDIT_PAGES, PAID_MAX_AUDIT_PAGES } from "@/shared/audit-limits";
 import { jsonCodec } from "@/shared/json";
 
@@ -38,9 +39,6 @@ export function parseAuditConfig(configRaw: string | null): AuditConfig | null {
   const result = auditConfigCodec.safeParse(configRaw);
   return result.success ? result.data : null;
 }
-
-/** How a page fetch resolved. "blocked" = WAF/bot challenge stood in the way. */
-export type PageFetchClass = "ok" | "blocked" | "error";
 
 /** One outgoing link edge, deduped by target URL within a page. */
 export interface PageLink {
@@ -146,6 +144,12 @@ export interface CrawledPageResult {
    * response time is measured at headers and says nothing about body size.
    */
   htmlBytes: number;
+  /**
+   * True when a 429 was retried for this URL (whatever the retry returned).
+   * Not persisted — narrows the crawl window so the pages after it are
+   * fetched more slowly.
+   */
+  rateLimited: boolean;
   imagesTotal: number;
   imagesMissingAlt: number;
   images: Array<{ src: string | null; alt: string | null }>;

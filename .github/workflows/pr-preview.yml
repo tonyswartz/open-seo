@@ -96,8 +96,8 @@ jobs:
 
       # Fail the job (and skip the URL comment) if the deployed preview
       # answers without a Cloudflare Access login redirect. A definitive app
-      # response (2xx/3xx, no Access redirect) fails immediately — the
-      # preview is public; retries are only for propagation-era errors.
+      # response (2xx–4xx except 404, no Access redirect) fails immediately;
+      # retries are only for propagation-era errors, including workers.dev 404s.
       # (Cloudflare version preview URLs sit outside this wildcard, but alchemy
       # uploads versions with no preview provisioned, so none are served — see
       # docs/PREVIEW_DEPLOYMENTS.md.)
@@ -112,14 +112,14 @@ jobs:
               https://*.cloudflareaccess.com/cdn-cgi/access/login*)
                 exit 0 ;;
             esac
-            if [ -n "$code" ] && [ "$code" -ge 200 ] && [ "$code" -lt 500 ]; then
+            if [ -n "$code" ] && [ "$code" -ge 200 ] && [ "$code" -lt 500 ] && [ "$code" != 404 ]; then
               echo "::error::$PREVIEW_URL responded (HTTP $code) WITHOUT a Cloudflare Access challenge — the preview is public; destroy the stage (pnpm destroy:preview --stage $STAGE --yes)"
               exit 1
             fi
             echo "attempt $attempt: not up yet (${response:-no response})"
             sleep 5
           done
-          echo "::error::$PREVIEW_URL is unreachable (likely workers.dev propagation) — it still sits behind the wildcard Access app; re-run this job or verify manually"
+          echo "::error::Could not verify Cloudflare Access protection for $PREVIEW_URL after 8 attempts (possibly workers.dev propagation); re-run this job or verify manually before sharing the preview"
           exit 1
 
       - name: Destroy preview stage

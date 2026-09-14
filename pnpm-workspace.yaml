@@ -1,6 +1,13 @@
 minimumReleaseAge: 11520
 minimumReleaseAgeExclude:
   - "@every-app/*"
+  # TEMPORARY (remove after 2026-09-05): the chat-agent framework upgrade
+  # (@cloudflare/think 0.17.0, agents 0.22.0) was published 2026-08-27 —
+  # hours shy of the 8-day window. Needed for the unconditional
+  # durable-chat-recovery release that SAM's OOM guard (`onChatRecovery`
+  # returning `{ continue: false }`) is written against.
+  - "@cloudflare/think"
+  - "agents"
   # TEMPORARY (remove after 2026-08-15): workers-oauth-provider 0.10.2 was
   # published 2026-08-07; needed for the MCP SDK v2 migration plus the
   # ChatGPT DCR client-auth-negotiation fix.

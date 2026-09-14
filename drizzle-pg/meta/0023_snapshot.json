@@ -1050,6 +1050,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "match_case": {
+          "name": "match_case",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "search_volume": {
           "name": "search_volume",
           "type": "integer",

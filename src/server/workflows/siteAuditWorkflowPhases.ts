@@ -350,12 +350,26 @@ async function finalizeAudit(args: {
 
     const issues = await runMultipageChecks({ auditId });
     issues.push(...(await runScratchpadLinkChecks(auditId, startUrl, crawl)));
+    if (crawl.rateLimited) {
+      issues.push({
+        issueType: "crawl-rate-limited",
+        pageId: null,
+        pageUrl: startUrl,
+      });
+    }
     await AuditRepository.insertIssues(auditId, issues);
     return { issueCount: issues.length };
   });
 
   await pgStep(step, "finalize", DB_STEP, async () => {
-    const blockedPages = await AuditRepository.countBlockedPages(auditId);
+    const blockedPages = await AuditRepository.countPagesByFetchClass(
+      auditId,
+      "blocked",
+    );
+    const rateLimitedPages = await AuditRepository.countPagesByFetchClass(
+      auditId,
+      "rate_limited",
+    );
     await AuditRepository.completeAudit(auditId, workflowInstanceId, {
       pagesCrawled: crawl.pagesCrawled,
       pagesTotal: crawl.pagesCrawled,
@@ -371,6 +385,7 @@ async function finalizeAudit(args: {
         pages_total: crawl.pagesCrawled,
         crawl_completed: crawl.completed,
         pages_blocked: blockedPages,
+        pages_rate_limited: rateLimitedPages,
         run_lighthouse: config.lighthouseStrategy !== "none",
       },
     });

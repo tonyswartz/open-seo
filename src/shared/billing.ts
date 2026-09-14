@@ -8,7 +8,7 @@ export const AUTUMN_PAID_PLAN_FEATURE_ID = "paid_plan";
 // user gets it) and the paid base plan. It's the floor for using the managed
 // service at all — paid-only features gate on AUTUMN_PAID_PLAN_FEATURE_ID.
 export const AUTUMN_MANAGED_ACCESS_FEATURE_ID = "managed_service_access";
-// The shared usage-credit pool. Both DataForSEO and onboarding-LLM spend deduct
+// The shared usage-credit pool. Both DataForSEO and agent-LLM spend deduct
 // from these (monthly usage_credits first, then rolled-over topup_credits).
 export const AUTUMN_SEO_DATA_BALANCE_FEATURE_ID = "usage_credits";
 export const AUTUMN_SEO_DATA_TOPUP_BALANCE_FEATURE_ID = "topup_credits";

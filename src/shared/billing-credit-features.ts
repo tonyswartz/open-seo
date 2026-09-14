@@ -7,7 +7,6 @@ export type CreditFeature =
   | "ai_citations"
   | "ai_prompt_responses"
   | "local_seo"
-  | "onboarding"
   | "agent";
 
 const CREDIT_FEATURE_LABELS: Record<string, string> = {
@@ -20,6 +19,8 @@ const CREDIT_FEATURE_LABELS: Record<string, string> = {
   ai_prompt_responses: "AI Prompt Responses",
   ai_search: "AI Search",
   local_seo: "Local SEO",
+  // The onboarding chat is gone, but historical usage events still carry this
+  // key — keep the label so old billing breakdowns don't render "Other".
   onboarding: "Onboarding",
   agent: "SAM Agent",
 };

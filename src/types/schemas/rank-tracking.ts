@@ -36,6 +36,7 @@ export interface RankTrackingDeviceResult {
 export interface RankTrackingRow {
   trackingKeywordId: string;
   keyword: string;
+  matchCase: boolean;
   searchVolume: number | null;
   keywordDifficulty: number | null;
   cpc: number | null;
@@ -117,6 +118,7 @@ export const addKeywordsSchema = z.object({
     .array(z.string().min(1).max(MAX_TRACKED_KEYWORD_LENGTH))
     .min(1)
     .max(2000),
+  matchCase: z.boolean().optional(),
 });
 
 export const removeKeywordsSchema = z.object({

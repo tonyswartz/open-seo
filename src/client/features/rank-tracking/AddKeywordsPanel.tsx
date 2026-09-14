@@ -18,9 +18,12 @@ export function AddKeywordsPanel({
   onCancel: () => void;
 }) {
   const [keywordInput, setKeywordInput] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
   const mutation = useMutation({
     mutationFn: (kws: string[]) =>
-      addTrackingKeywords({ data: { projectId, configId, keywords: kws } }),
+      addTrackingKeywords({
+        data: { projectId, configId, keywords: kws, matchCase },
+      }),
     onSuccess: (result) => {
       setKeywordInput("");
       onSuccess(result);
@@ -32,13 +35,27 @@ export function AddKeywordsPanel({
   const isPending = mutation.isPending;
   return (
     <div className="flex gap-2 items-end">
-      <textarea
-        className="textarea textarea-bordered textarea-sm flex-1"
-        rows={3}
-        placeholder="Enter keywords, one per line"
-        value={keywordInput}
-        onChange={(e) => setKeywordInput(e.target.value)}
-      />
+      <div className="flex flex-col gap-1 flex-1">
+        <textarea
+          className="textarea textarea-bordered textarea-sm w-full"
+          rows={3}
+          placeholder="Enter keywords, one per line"
+          value={keywordInput}
+          onChange={(e) => setKeywordInput(e.target.value)}
+        />
+        <label
+          className="flex items-center gap-2 text-xs cursor-pointer w-fit"
+          title="Track these keywords exactly as typed instead of lowercasing them. Google can return different results for a capitalized brand name."
+        >
+          <input
+            type="checkbox"
+            className="checkbox checkbox-xs [--radius-selector:0.25rem]"
+            checked={matchCase}
+            onChange={(e) => setMatchCase(e.target.checked)}
+          />
+          Match case
+        </label>
+      </div>
       <div className="flex flex-col gap-1">
         <button
           className="btn btn-primary btn-sm"

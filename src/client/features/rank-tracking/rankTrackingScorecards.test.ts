@@ -20,6 +20,7 @@ function row(
   return {
     trackingKeywordId: crypto.randomUUID(),
     keyword: "kw",
+    matchCase: false,
     searchVolume,
     keywordDifficulty: null,
     cpc: null,

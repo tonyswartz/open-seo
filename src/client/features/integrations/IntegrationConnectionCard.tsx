@@ -19,16 +19,14 @@ export function IntegrationConnectionCard({
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm">
-      <div className="flex items-start justify-between gap-4 p-5 sm:p-6">
+      <div className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:gap-4 sm:p-6">
         <div className="flex min-w-0 items-center gap-2.5">
           {icon ? (
             <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-base-300 bg-base-100 shadow-sm">
               {icon}
             </span>
           ) : null}
-          <h2 className="truncate text-base font-semibold leading-tight">
-            {title}
-          </h2>
+          <h2 className="text-base font-semibold leading-tight">{title}</h2>
         </div>
         {status ? <ConnectionStatusPill status={status} /> : null}
       </div>

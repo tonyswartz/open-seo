@@ -2,9 +2,9 @@ import { Settings, User } from "lucide-react";
 import { ThemePreferenceMenuItems } from "@/client/components/ThemePreferenceMenuItems";
 import { signOutAndRedirect } from "@/lib/auth-client";
 
-// Account dropdown shared by the onboarding wizard and the onboarding chat so a
-// signed-in user can reach Settings / theme / sign out from either surface.
-// Fixed top-right; renders nothing until we know the user's email.
+// Account dropdown for the onboarding wizard so a signed-in user can reach
+// Settings / theme / sign out from it. Fixed top-right; renders nothing until
+// we know the user's email.
 export function OnboardingAccountMenu({
   email,
 }: {

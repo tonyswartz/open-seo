@@ -67,8 +67,19 @@ in the footer. The choice is stored only in the visitor's browser.
 ## Run it locally
 
 ```bash
-# from the badseo/ directory
-npm run dev                 # serves on http://localhost:8787
+# from the repository root
+pnpm install --frozen-lockfile          # also needed by the audit harness
+pnpm --dir badseo install --frozen-lockfile
+pnpm --dir badseo run dev               # serves on http://localhost:8787
+```
+
+Use the Vite dev server above when running the audit locally. Its sitemap URLs
+should use `http://localhost:8787`, matching the origin passed to the harness.
+
+Format BadSEO files with the repository's root Prettier installation:
+
+```bash
+pnpm exec prettier --write "badseo/**/*.{ts,tsx,json,jsonc,md}"
 ```
 
 ## Run the end-to-end audit
@@ -79,8 +90,8 @@ fixture triggers exactly the issues it declares — and that the homepage,
 privacy policy, and support pages come back clean.
 
 ```bash
-# with `npm run dev` running in another terminal:
-npm run audit -- http://localhost:8787
+# from the repository root, with the BadSEO dev server running:
+pnpm --dir badseo run audit http://localhost:8787
 ```
 
 It prints a per-page pass/fail matrix and an issue-type coverage line, and exits

@@ -1,4 +1,5 @@
-import { ArrowRight, Check } from "lucide-react";
+import { OnboardingCard } from "./OnboardingCard";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import type { ReactNode } from "react";
 import { Fragment } from "react";
 import {
@@ -6,32 +7,27 @@ import {
   CLIENT_WORK_FOR,
   INTEREST_OPTIONS,
   ONBOARDING_LAST_STEP,
+  ONBOARDING_OPTION_LABELS,
   type OnboardingAnswers,
   SOURCE_OPTIONS,
-  SOURCE_OPTIONS_HIDDEN_ON_MOBILE,
   WORK_FOR_OPTIONS,
 } from "@/client/features/onboarding/onboardingModel";
+import { AgentSetup } from "@/client/features/ai-mcp/AgentSetup";
 import { SearchConsoleOnboardingStep } from "@/client/features/onboarding/SearchConsoleOnboardingStep";
 
 type PostSignupOnboardingProps = {
-  firstName: string;
-  title?: string;
-  helperText?: string;
   step: number;
   answers: OnboardingAnswers;
   onAnswersChange: (answers: OnboardingAnswers) => void;
   onNext: () => void;
   onBack: () => void;
   onSkip: () => void;
-  onFinish: () => void;
+  onFinish: (mcpSetupIntent?: "yes" | "no") => void;
   isSaving: boolean;
   accountMenu: ReactNode;
 };
 
 export function PostSignupOnboarding({
-  firstName,
-  title,
-  helperText,
   step,
   answers,
   onAnswersChange,
@@ -55,122 +51,113 @@ export function PostSignupOnboarding({
     onAnswersChange({ ...answers, ...patch });
 
   return (
-    <div className="w-full max-w-md space-y-6">
+    <>
       {accountMenu}
-
-      <div className="text-center space-y-3">
-        <img
-          src="/transparent-logo.png"
-          alt="OpenSEO"
-          className="mx-auto size-10 rounded-lg"
-        />
-        <p className="text-xs font-medium uppercase tracking-wide text-base-content/50">
-          Step {step + 1} of {ONBOARDING_LAST_STEP + 1}
-        </p>
-        <h1 className="text-xl font-semibold">
-          {title ??
-            (firstName
-              ? `Welcome to OpenSEO, ${firstName}!`
-              : "Welcome to OpenSEO!")}
-        </h1>
-        <p className="text-sm text-base-content/60">
-          {helperText ?? "A few quick answers to set things up."}
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-        {step === 0 ? (
-          <OnboardingChoiceGroup
-            title="What tasks matter to you most?"
-            description="Pick up to 3."
-            maxSelections={3}
-            options={[...INTEREST_OPTIONS]}
-            selectedValues={answers.selectedInterests}
-            onToggle={(value) => {
-              updateAnswers({
-                selectedInterests: answers.selectedInterests.includes(value)
-                  ? answers.selectedInterests.filter((item) => item !== value)
-                  : [...answers.selectedInterests, value],
-              });
-            }}
-            otherValue={answers.interestOther}
-            onOtherChange={(interestOther) => updateAnswers({ interestOther })}
-            multiple
-          />
-        ) : step === 1 ? (
-          <OnboardingChoiceGroup
-            title="Who are you doing SEO for?"
-            options={[...WORK_FOR_OPTIONS]}
-            selectedValues={answers.workFor ? [answers.workFor] : []}
-            onToggle={(workFor) => updateAnswers({ workFor })}
-            otherValue={answers.workForOther}
-            onOtherChange={(workForOther) => updateAnswers({ workForOther })}
-            followUp={{
-              showForValue: CLIENT_WORK_FOR,
-              label: "About how many client sites do you work on?",
-              options: [...CLIENT_WEBSITE_COUNT_OPTIONS],
-              value: answers.clientWebsiteCount,
-              onChange: (clientWebsiteCount) =>
-                updateAnswers({ clientWebsiteCount }),
-            }}
-          />
-        ) : step === 2 ? (
-          <OnboardingChoiceGroup
-            title="How did you find OpenSEO?"
-            options={[...SOURCE_OPTIONS]}
-            selectedValues={answers.source ? [answers.source] : []}
-            onToggle={(source) => updateAnswers({ source })}
-            otherValue={answers.sourceOther}
-            onOtherChange={(sourceOther) => updateAnswers({ sourceOther })}
-            hiddenOnMobile={[...SOURCE_OPTIONS_HIDDEN_ON_MOBILE]}
-          />
-        ) : (
-          <SearchConsoleOnboardingStep />
-        )}
-
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={step === 0 || isSaving}
-            onClick={onBack}
-          >
-            Back
-          </button>
-          {step < ONBOARDING_LAST_STEP ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm text-base-content/55"
-                disabled={isSaving}
-                onClick={onSkip}
-              >
-                Skip
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!canContinue || isSaving}
-                onClick={onNext}
-              >
-                Continue
-                <ArrowRight className="size-4" />
-              </button>
-            </div>
+      <OnboardingCard step={step + 1} total={ONBOARDING_LAST_STEP + 1}>
+        <fieldset disabled={isSaving}>
+          {step === 0 ? (
+            <OnboardingChoiceGroup
+              title="What brings you here?"
+              description="Pick up to three things you want to work on."
+              maxSelections={3}
+              options={[...INTEREST_OPTIONS]}
+              selectedValues={answers.selectedInterests}
+              onToggle={(value) => {
+                updateAnswers({
+                  selectedInterests: answers.selectedInterests.includes(value)
+                    ? answers.selectedInterests.filter((item) => item !== value)
+                    : [...answers.selectedInterests, value],
+                });
+              }}
+              otherValue={answers.interestOther}
+              onOtherChange={(interestOther) =>
+                updateAnswers({ interestOther })
+              }
+              multiple
+            />
+          ) : step === 1 ? (
+            <OnboardingChoiceGroup
+              title="Who are you doing SEO for?"
+              options={[...WORK_FOR_OPTIONS]}
+              selectedValues={answers.workFor ? [answers.workFor] : []}
+              onToggle={(workFor) => updateAnswers({ workFor })}
+              otherValue={answers.workForOther}
+              onOtherChange={(workForOther) => updateAnswers({ workForOther })}
+              followUp={{
+                showForValue: CLIENT_WORK_FOR,
+                label: "About how many client sites do you work on?",
+                options: [...CLIENT_WEBSITE_COUNT_OPTIONS],
+                value: answers.clientWebsiteCount,
+                onChange: (clientWebsiteCount) =>
+                  updateAnswers({ clientWebsiteCount }),
+              }}
+            />
+          ) : step === 2 ? (
+            <OnboardingChoiceGroup
+              title="How did you find OpenSEO?"
+              options={[...SOURCE_OPTIONS]}
+              selectedValues={answers.source ? [answers.source] : []}
+              onToggle={(source) => updateAnswers({ source })}
+              otherValue={answers.sourceOther}
+              onOtherChange={(sourceOther) => updateAnswers({ sourceOther })}
+            />
+          ) : step === 3 ? (
+            <SearchConsoleOnboardingStep />
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
+            <AgentSetup
+              initialIntent={answers.mcpSetupIntent}
+              onComplete={onFinish}
+              onBack={onBack}
               disabled={isSaving}
-              onClick={onFinish}
-            >
-              Finish
-              <ArrowRight className="size-4" />
-            </button>
+              onIntentChange={(mcpSetupIntent) =>
+                updateAnswers({ mcpSetupIntent })
+              }
+            />
           )}
-        </div>
-      </div>
-    </div>
+
+          {step < ONBOARDING_LAST_STEP && (
+            <div className="mt-8 flex items-center justify-between gap-3">
+              {step > 0 ? (
+                <button
+                  type="button"
+                  className="flex min-h-10 items-center gap-1.5 text-xs text-base-content/60 hover:text-base-content"
+                  onClick={onBack}
+                >
+                  <ArrowLeft className="size-3.5" /> Back
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={onSkip}
+                >
+                  Skip
+                </button>
+              )}
+              <div className="flex items-center gap-2">
+                {step > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm text-base-content/55"
+                    onClick={onSkip}
+                  >
+                    Skip
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!canContinue || isSaving}
+                  onClick={onNext}
+                >
+                  Continue <ArrowRight className="size-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </fieldset>
+      </OnboardingCard>
+    </>
   );
 }
 
@@ -185,7 +172,6 @@ function OnboardingChoiceGroup({
   multiple = false,
   maxSelections,
   followUp,
-  hiddenOnMobile,
 }: {
   title: string;
   description?: string;
@@ -196,7 +182,6 @@ function OnboardingChoiceGroup({
   onOtherChange: (value: string) => void;
   multiple?: boolean;
   maxSelections?: number;
-  hiddenOnMobile?: string[];
   followUp?: {
     showForValue: string;
     label: string;
@@ -212,44 +197,44 @@ function OnboardingChoiceGroup({
     maxSelections !== undefined && selectedValues.length >= maxSelections;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
+    <div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {description ? (
-          <p className="mt-1 text-sm text-base-content/60">{description}</p>
+          <p className="mt-3 text-sm leading-relaxed text-base-content/60">
+            {description}
+          </p>
         ) : null}
       </div>
 
-      <div className="grid gap-2">
+      <div className="flex flex-wrap gap-2">
         {options.map((option) => {
           const selected = selectedValues.includes(option);
           const disabled = atLimit && !selected;
           const showFollowUpHere =
             showFollowUp && followUp?.showForValue === option;
-          // Selected options stay visible so a restored answer never vanishes.
-          const mobileHidden = hiddenOnMobile?.includes(option) && !selected;
 
           return (
             <Fragment key={option}>
               <button
                 type="button"
-                className={`${mobileHidden ? "hidden sm:flex" : "flex"} min-h-11 items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                  selected
-                    ? "border-base-content bg-base-200 text-base-content"
-                    : disabled
-                      ? "border-base-300 text-base-content/35 cursor-not-allowed"
-                      : "border-base-300 text-base-content/75 hover:border-base-content/40 hover:bg-base-200/60"
-                }`}
+                className={`flex min-h-11 items-center gap-3 rounded-full border px-4 py-2.5 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary ${selected ? "border-primary bg-primary/5 text-primary" : "border-base-300 hover:bg-base-200"} disabled:cursor-not-allowed disabled:opacity-35`}
                 aria-pressed={selected}
                 disabled={disabled}
                 onClick={() => onToggle(option)}
               >
-                <span>{option}</span>
-                {selected ? <Check className="size-4 shrink-0" /> : null}
+                <span
+                  className={`flex size-4 shrink-0 items-center justify-center border ${multiple ? "rounded" : "rounded-full"} ${selected ? "border-primary bg-primary text-primary-content" : "border-base-content/30"}`}
+                >
+                  {selected && <Check className="size-3" />}
+                </span>
+                <span className="capitalize">
+                  {ONBOARDING_OPTION_LABELS[option] ?? option}
+                </span>
               </button>
 
               {showFollowUpHere && followUp ? (
-                <div className="rounded-lg border border-base-300 bg-base-200/40 px-3 py-2.5">
+                <div className="w-full rounded-lg border border-base-300 bg-base-200/40 p-4">
                   <p className="text-sm text-base-content/70">
                     {followUp.label}
                   </p>
@@ -289,7 +274,8 @@ function OnboardingChoiceGroup({
       {isOtherSelected ? (
         <input
           type="text"
-          className="input input-bordered w-full"
+          className="input input-bordered mt-4 w-full"
+          aria-label={multiple ? "Other tasks" : "Other answer"}
           placeholder={multiple ? "Tell us what else..." : "Tell us more..."}
           value={otherValue}
           onChange={(event) => onOtherChange(event.target.value)}

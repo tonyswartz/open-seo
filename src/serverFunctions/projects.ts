@@ -9,8 +9,7 @@ import {
   archiveProjectSchema,
   createProjectSchema,
   restoreProjectSchema,
-  setProjectDomainSchema,
-  setProjectMarketSchema,
+  setProjectWebsiteSchema,
   updateProjectSchema,
 } from "@/types/schemas/projects";
 import { z } from "zod";
@@ -36,20 +35,6 @@ export const updateProject = createServerFn({ method: "POST" })
   .validator(updateProjectSchema)
   .handler(async ({ data, context }) =>
     ProjectService.updateProject(context.organizationId, data),
-  );
-
-export const setProjectDomain = createServerFn({ method: "POST" })
-  .middleware(requireProjectContext)
-  .validator(setProjectDomainSchema)
-  .handler(async ({ data, context }) =>
-    ProjectService.setProjectDomain(context.organizationId, data),
-  );
-
-export const setProjectMarket = createServerFn({ method: "POST" })
-  .middleware(requireProjectContext)
-  .validator(setProjectMarketSchema)
-  .handler(async ({ data, context }) =>
-    ProjectService.setProjectMarket(context.organizationId, data),
   );
 
 export const archiveProject = createServerFn({ method: "POST" })
@@ -83,3 +68,10 @@ export const getProjectAccess = createServerFn({ method: "POST" })
       data.projectId,
     );
   });
+
+export const setProjectWebsite = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(setProjectWebsiteSchema)
+  .handler(({ data, context }) =>
+    ProjectService.setProjectWebsite(context.organizationId, data),
+  );
