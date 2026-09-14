@@ -118,14 +118,14 @@ export const SATISFIED_REASONS = [
   "HIGH_VALUE_SERVICE",
 ] as const;
 
-export type SurveyAnswer = (typeof SURVEY_ANSWERS)[number];
-export type DissatisfiedReason = (typeof DISSATISFIED_REASONS)[number];
-export type SatisfiedReason = (typeof SATISFIED_REASONS)[number];
+type SurveyAnswer = (typeof SURVEY_ANSWERS)[number];
+type DissatisfiedReason = (typeof DISSATISFIED_REASONS)[number];
+type SatisfiedReason = (typeof SATISFIED_REASONS)[number];
 
 const LEAD_ID_PATTERN = /^\d{1,19}$/;
 const MAX_OTHER_REASON_COMMENT_LENGTH = 200;
 
-export type LeadFeedbackResult = {
+type LeadFeedbackResult = {
   leadId: string;
   creditIssuanceDecision: string;
   /** Post-file re-read of lead_feedback_submitted; null if Google rejected the field. */

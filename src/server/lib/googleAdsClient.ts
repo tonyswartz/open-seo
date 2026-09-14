@@ -123,7 +123,7 @@ const provideLeadFeedbackResponseSchema = z.object({
   creditIssuanceDecision: z.string(),
 });
 
-export type ProvideLeadFeedbackBody = {
+type ProvideLeadFeedbackBody = {
   surveyAnswer: string;
   surveyDissatisfied?: {
     surveyDissatisfiedReason: string;
