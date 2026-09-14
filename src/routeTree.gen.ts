@@ -18,6 +18,7 @@ import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as ProjectRouteRouteImport } from './routes/_project/route'
 import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as MockupsSignupRouteImport } from './routes/mockups.signup'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AcceptInvitationIdRouteImport } from './routes/accept-invitation.$id'
 import { Route as AuthenticatedSubscribeRouteImport } from './routes/_authenticated.subscribe'
@@ -35,7 +36,6 @@ import { Route as AuthenticatedOnboardingIndexRouteImport } from './routes/_auth
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as ApiAutumnSplatRouteImport } from './routes/api/autumn/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as AuthenticatedOnboardingChatRouteImport } from './routes/_authenticated.onboarding.chat'
 import { Route as AppSettingsOrganizationRouteImport } from './routes/_app/settings/organization'
 import { Route as AppHelpOpenrouterApiKeyRouteImport } from './routes/_app/help/openrouter-api-key'
 import { Route as AppHelpDataforseoApiKeyRouteImport } from './routes/_app/help/dataforseo-api-key'
@@ -103,6 +103,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRouteRoute,
+} as any)
+const MockupsSignupRoute = MockupsSignupRouteImport.update({
+  id: '/mockups/signup',
+  path: '/mockups/signup',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -192,12 +197,6 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedOnboardingChatRoute =
-  AuthenticatedOnboardingChatRouteImport.update({
-    id: '/onboarding/chat',
-    path: '/onboarding/chat',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AppSettingsOrganizationRoute = AppSettingsOrganizationRouteImport.update({
   id: '/organization',
   path: '/organization',
@@ -362,11 +361,11 @@ export interface FileRoutesByFullPath {
   '/subscribe': typeof AuthenticatedSubscribeRoute
   '/accept-invitation/$id': typeof AcceptInvitationIdRoute
   '/api/health': typeof ApiHealthRoute
+  '/mockups/signup': typeof MockupsSignupRoute
   '/p/$projectId': typeof ProjectPProjectIdRouteRouteWithChildren
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
   '/settings/organization': typeof AppSettingsOrganizationRoute
-  '/onboarding/chat': typeof AuthenticatedOnboardingChatRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/autumn/$': typeof ApiAutumnSplatRoute
   '/settings/': typeof AppSettingsIndexRoute
@@ -412,10 +411,10 @@ export interface FileRoutesByTo {
   '/subscribe': typeof AuthenticatedSubscribeRoute
   '/accept-invitation/$id': typeof AcceptInvitationIdRoute
   '/api/health': typeof ApiHealthRoute
+  '/mockups/signup': typeof MockupsSignupRoute
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
   '/settings/organization': typeof AppSettingsOrganizationRoute
-  '/onboarding/chat': typeof AuthenticatedOnboardingChatRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/autumn/$': typeof ApiAutumnSplatRoute
   '/settings': typeof AppSettingsIndexRoute
@@ -463,12 +462,12 @@ export interface FileRoutesById {
   '/_authenticated/subscribe': typeof AuthenticatedSubscribeRoute
   '/accept-invitation/$id': typeof AcceptInvitationIdRoute
   '/api/health': typeof ApiHealthRoute
+  '/mockups/signup': typeof MockupsSignupRoute
   '/_app/': typeof AppIndexRoute
   '/_project/p/$projectId': typeof ProjectPProjectIdRouteRouteWithChildren
   '/_app/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/_app/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
   '/_app/settings/organization': typeof AppSettingsOrganizationRoute
-  '/_authenticated/onboarding/chat': typeof AuthenticatedOnboardingChatRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/autumn/$': typeof ApiAutumnSplatRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
@@ -517,11 +516,11 @@ export interface FileRouteTypes {
     | '/subscribe'
     | '/accept-invitation/$id'
     | '/api/health'
+    | '/mockups/signup'
     | '/p/$projectId'
     | '/help/dataforseo-api-key'
     | '/help/openrouter-api-key'
     | '/settings/organization'
-    | '/onboarding/chat'
     | '/api/auth/$'
     | '/api/autumn/$'
     | '/settings/'
@@ -567,10 +566,10 @@ export interface FileRouteTypes {
     | '/subscribe'
     | '/accept-invitation/$id'
     | '/api/health'
+    | '/mockups/signup'
     | '/help/dataforseo-api-key'
     | '/help/openrouter-api-key'
     | '/settings/organization'
-    | '/onboarding/chat'
     | '/api/auth/$'
     | '/api/autumn/$'
     | '/settings'
@@ -617,12 +616,12 @@ export interface FileRouteTypes {
     | '/_authenticated/subscribe'
     | '/accept-invitation/$id'
     | '/api/health'
+    | '/mockups/signup'
     | '/_app/'
     | '/_project/p/$projectId'
     | '/_app/help/dataforseo-api-key'
     | '/_app/help/openrouter-api-key'
     | '/_app/settings/organization'
-    | '/_authenticated/onboarding/chat'
     | '/api/auth/$'
     | '/api/autumn/$'
     | '/_app/settings/'
@@ -663,6 +662,7 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93OpenaiAppsChallengeRoute: typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   AcceptInvitationIdRoute: typeof AcceptInvitationIdRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  MockupsSignupRoute: typeof MockupsSignupRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAutumnSplatRoute: typeof ApiAutumnSplatRoute
   ApiGa4OauthCallbackRoute: typeof ApiGa4OauthCallbackRoute
@@ -734,6 +734,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
+    }
+    '/mockups/signup': {
+      id: '/mockups/signup'
+      path: '/mockups/signup'
+      fullPath: '/mockups/signup'
+      preLoaderRoute: typeof MockupsSignupRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/health': {
       id: '/api/health'
@@ -853,13 +860,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/onboarding/chat': {
-      id: '/_authenticated/onboarding/chat'
-      path: '/onboarding/chat'
-      fullPath: '/onboarding/chat'
-      preLoaderRoute: typeof AuthenticatedOnboardingChatRouteImport
-      parentRoute: typeof AuthenticatedRoute
     }
     '/_app/settings/organization': {
       id: '/_app/settings/organization'
@@ -1208,14 +1208,12 @@ const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
 interface AuthenticatedRouteChildren {
   AuthenticatedOauthConsentRoute: typeof AuthenticatedOauthConsentRoute
   AuthenticatedSubscribeRoute: typeof AuthenticatedSubscribeRoute
-  AuthenticatedOnboardingChatRoute: typeof AuthenticatedOnboardingChatRoute
   AuthenticatedOnboardingIndexRoute: typeof AuthenticatedOnboardingIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedOauthConsentRoute: AuthenticatedOauthConsentRoute,
   AuthenticatedSubscribeRoute: AuthenticatedSubscribeRoute,
-  AuthenticatedOnboardingChatRoute: AuthenticatedOnboardingChatRoute,
   AuthenticatedOnboardingIndexRoute: AuthenticatedOnboardingIndexRoute,
 }
 
@@ -1236,6 +1234,7 @@ const rootRouteChildren: RootRouteChildren = {
     Char91DotwellKnownChar93OpenaiAppsChallengeRoute,
   AcceptInvitationIdRoute: AcceptInvitationIdRoute,
   ApiHealthRoute: ApiHealthRoute,
+  MockupsSignupRoute: MockupsSignupRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAutumnSplatRoute: ApiAutumnSplatRoute,
   ApiGa4OauthCallbackRoute: ApiGa4OauthCallbackRoute,

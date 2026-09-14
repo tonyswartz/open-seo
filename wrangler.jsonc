@@ -37,19 +37,13 @@
       "class_name": "RankCheckWorkflow",
     },
   ],
-  // Durable Object backing the onboarding strategy chat (Agents SDK
-  // AIChatAgent). One instance per project; messages persist in the DO's
-  // SQLite. SQLite-backed classes must be declared in `migrations` below for
-  // the wrangler/workerd surfaces (local dev, Docker self-host); Alchemy
-  // deploys derive SQLite backing on their own.
+  // Durable Object backing the SAM in-app agent (Agents SDK AIChatAgent). One
+  // instance per chat session; messages persist in the DO's SQLite.
+  // SQLite-backed classes must be declared in `migrations` below for the
+  // wrangler/workerd surfaces (local dev, Docker self-host); Alchemy deploys
+  // derive SQLite backing on their own.
   "durable_objects": {
     "bindings": [
-      {
-        "name": "ONBOARDING_CHAT",
-        "class_name": "OnboardingChatAgent",
-      },
-      // SAM in-app agent. One instance per chat session; messages persist in the
-      // DO's SQLite. SQLite-backed classes must be declared in `migrations`.
       {
         "name": "SAM_CHAT",
         "class_name": "SamChatAgent",
@@ -89,6 +83,13 @@
     {
       "tag": "v4",
       "deleted_classes": ["AuditScratchpad"],
+    },
+    // The onboarding strategy chat was removed: the namespace had had zero
+    // invocations for months. Deleting the class destroys every instance's
+    // stored conversation, which is the intent — nothing else reads it.
+    {
+      "tag": "v5",
+      "deleted_classes": ["OnboardingChatAgent"],
     },
   ],
   "triggers": {

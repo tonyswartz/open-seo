@@ -1,4 +1,5 @@
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import type { rankTrackingKeywords } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
 import {
   devicesCount,
@@ -18,6 +19,9 @@ async function addKeywords(
         kind: "credit_ceiling";
         maxEstimatedScheduledCheckCredits?: number;
       },
+  // Keep the keyword exactly as typed instead of lowercasing it. "Nodex" and
+  // "nodex" are then two separately tracked (and separately billed) keywords.
+  matchCase = false,
 ) {
   const config = await getValidatedConfig(configId, projectId);
   const existing = await RankTrackingRepository.getKeywordsForConfig(configId);
@@ -32,18 +36,24 @@ async function addKeywords(
   const existingKeywords = new Set(existing.map((kw) => kw.keyword));
   const available = MAX_KEYWORDS_PER_CONFIG - existing.length;
   const seen = new Set<string>();
-  const rows: Array<{ id: string; configId: string; keyword: string }> = [];
+  const rows: (typeof rankTrackingKeywords.$inferInsert)[] = [];
 
   for (const raw of keywords) {
     if (rows.length >= available) break;
-    const normalized = raw.trim().toLowerCase();
+    const trimmed = raw.trim();
+    const normalized = matchCase ? trimmed : trimmed.toLowerCase();
     if (
       normalized &&
       !seen.has(normalized) &&
       !existingKeywords.has(normalized)
     ) {
       seen.add(normalized);
-      rows.push({ id: crypto.randomUUID(), configId, keyword: normalized });
+      rows.push({
+        id: crypto.randomUUID(),
+        configId,
+        keyword: normalized,
+        matchCase,
+      });
     }
   }
 

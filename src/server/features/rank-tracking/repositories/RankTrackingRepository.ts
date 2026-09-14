@@ -315,7 +315,7 @@ async function getKeywordsForConfig(configId: string) {
 }
 
 async function addKeywordsToConfig(
-  keywords: Array<{ id: string; configId: string; keyword: string }>,
+  keywords: (typeof rankTrackingKeywords.$inferInsert)[],
 ) {
   const insertedIds: string[] = [];
 

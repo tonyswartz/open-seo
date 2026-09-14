@@ -9,6 +9,7 @@ import {
   getIssueDescriptor,
   ISSUE_SEVERITY_ORDER,
 } from "@/shared/audit-issues";
+import { PAGE_FETCH_CLASSES } from "@/shared/audit-fetch-class";
 import { mcpResponse } from "@/server/mcp/formatters";
 import { buildProjectMeta } from "@/server/mcp/context";
 import {
@@ -69,7 +70,7 @@ export const runSiteAuditTool = {
   config: {
     title: "Run site audit",
     description:
-      "Start a site audit: crawls the site (robots.txt-aware, same-origin), checks every page for SEO issues (broken links, duplicate/missing titles and descriptions, redirect chains, orphan pages, canonical problems, thin content, and more), and optionally runs Lighthouse on a sample of pages. Runs in the background — poll get_audit_status, then read get_audit_issues. If the site blocks our crawler, pages are honestly flagged as blocked rather than misreported.",
+      "Start a site audit: crawls the site (robots.txt-aware, same-origin), checks every page for SEO issues (broken links, duplicate/missing titles and descriptions, redirect chains, orphan pages, canonical problems, thin content, and more), and optionally runs Lighthouse on a sample of pages. Runs in the background — poll get_audit_status, then read get_audit_issues. If the site rate limits the crawler it slows down and retries; pages it still cannot read are honestly flagged as blocked or rate-limited rather than misreported.",
     inputSchema: runInputSchema,
     outputSchema: z
       .object({
@@ -333,10 +334,10 @@ const pagesInputSchema = {
   projectId: projectIdSchema,
   auditId: auditIdSchema,
   fetchClass: z
-    .enum(["ok", "blocked", "error"])
+    .enum(PAGE_FETCH_CLASSES)
     .optional()
     .describe(
-      'Filter by fetch outcome ("blocked" = the site\'s bot protection challenged the crawler).',
+      'Filter by fetch outcome ("blocked" = the site\'s bot protection challenged the crawler; "rate_limited" = a 429 prevented the crawler from reading the page).',
     ),
   statusCode: z
     .number()

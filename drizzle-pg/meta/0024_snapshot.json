@@ -126,6 +126,89 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.dashboard_step_dismissals": {
+      "name": "dashboard_step_dismissals",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "step": {
+          "name": "step",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "dashboard_step_dismissals_project_idx": {
+          "name": "dashboard_step_dismissals_project_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "dashboard_step_dismissals_user_id_user_id_fk": {
+          "name": "dashboard_step_dismissals_user_id_user_id_fk",
+          "tableFrom": "dashboard_step_dismissals",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "dashboard_step_dismissals_project_id_projects_id_fk": {
+          "name": "dashboard_step_dismissals_project_id_projects_id_fk",
+          "tableFrom": "dashboard_step_dismissals",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "dashboard_step_dismissals_user_id_project_id_step_pk": {
+          "name": "dashboard_step_dismissals_user_id_project_id_step_pk",
+          "columns": [
+            "user_id",
+            "project_id",
+            "step"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.keyword_metrics": {
       "name": "keyword_metrics",
       "schema": "",
@@ -1049,6 +1132,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "match_case": {
+          "name": "match_case",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "search_volume": {
           "name": "search_volume",

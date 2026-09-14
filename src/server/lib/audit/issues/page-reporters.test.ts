@@ -42,6 +42,7 @@ function makePage(overrides: Partial<CrawledPageResult>): CrawledPageResult {
     contentHash: "abc123",
     isHtml: true,
     htmlBytes: 10_000,
+    rateLimited: false,
     imagesTotal: 0,
     imagesMissingAlt: 0,
     images: [],
@@ -69,6 +70,12 @@ describe("runPageReporters", () => {
     expect(
       issueTypes(makePage({ fetchClass: "blocked", statusCode: 403 })),
     ).toEqual(["blocked-page"]);
+  });
+
+  it("reports only rate-limited-page for a fetch the site kept 429ing", () => {
+    expect(
+      issueTypes(makePage({ fetchClass: "rate_limited", statusCode: 429 })),
+    ).toEqual(["rate-limited-page"]);
   });
 
   it("reports nothing for a fetch error", () => {

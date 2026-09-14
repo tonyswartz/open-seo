@@ -56,6 +56,7 @@ function captureMcpToolCall(
         error_code: outcome.errorCode,
         client_id: auth.clientId,
         source: auth.clientId ? "mcp_client" : "in_app_agent",
+        turn_id: context.turnId,
         duration_ms: outcome.durationMs,
         project_id: outcome.projectId,
         row_count: outcome.rowCount,

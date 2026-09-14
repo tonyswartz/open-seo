@@ -7,7 +7,7 @@
 
 import { normalizeAndValidateStartUrl } from "@/server/lib/audit/url-policy";
 
-export const MAX_PAGES = 5;
+const MAX_PAGES = 5;
 const PER_PAGE_CHAR_LIMIT = 4000;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -150,7 +150,9 @@ async function scrapePage(url: string): Promise<ScrapedPage | null> {
   if (text.length === 0) {
     return null;
   }
-  return { url, title: extractTitle(html), text };
+  // Extracted titles and shortened text can retain their entire source string
+  // in V8. Detach them before pages accumulate in results or chat transcripts.
+  return structuredClone({ url, title: extractTitle(html), text });
 }
 
 /**

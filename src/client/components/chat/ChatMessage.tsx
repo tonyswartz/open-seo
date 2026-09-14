@@ -11,16 +11,15 @@ import {
 } from "lucide-react";
 import { Markdown } from "@/client/components/Markdown";
 
-// Shared rendering for the chat agents (onboarding + SAM). The chats differ
-// only in which tools are available and how tool names become labels
-// (resolveToolLabel) plus which message actions their server supports
-// (onUndo/onEdit); the UI itself is identical and lives here.
+// Shared chat-message rendering. A chat supplies which tools are available and
+// how tool names become labels (resolveToolLabel) plus which message actions
+// its server supports (onUndo/onEdit); the UI itself lives here.
 
-export type ToolLabel = { running: string; done: string };
+type ToolLabel = { running: string; done: string };
 
 // Maps a UIMessage tool part type (e.g. "tool-get_serp_results") to its label,
-// or null to hide the badge entirely (onboarding hides tools it hasn't curated).
-export type ResolveToolLabel = (partType: string) => ToolLabel | null;
+// or null to hide the badge entirely.
+type ResolveToolLabel = (partType: string) => ToolLabel | null;
 
 // Turn a tool part type ("tool-get_serp_results") into a readable label
 // ("Get serp results"). Used for chats that expose too many tools to curate a

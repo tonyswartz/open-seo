@@ -8,6 +8,7 @@ import {
   createSelfHostedGoogleAuthorizationUrl,
   GSC_INTEGRATION,
 } from "@/server/features/google/selfHostedOAuth";
+import { hasOrgPermission } from "@/lib/org-permissions";
 import { requireOrgPermission } from "@/server/auth/org-gate";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
@@ -48,6 +49,7 @@ export const getGscConnection = createServerFn({ method: "POST" })
       ]);
     return {
       connected: Boolean(connection),
+      canManage: hasOrgPermission(context.role, { integration: ["manage"] }),
       currentUserHasGrant,
       googleOAuthConfigured: hosted || gscConfigured,
       siteUrl: connection?.siteUrl ?? null,
@@ -64,20 +66,25 @@ export const listGscSites = createServerFn({ method: "POST" })
       GscService.listSitesForUserWithGrantStatus(context.userId),
       GscService.getConnection(context.projectId),
     ]);
-    let legacySelectionMatched = false;
+    const legacyAccounts = !connection?.gscAccountId
+      ? siteList.accounts.filter((grant) =>
+          grant.sites.some((site) => site.siteUrl === connection?.siteUrl),
+        )
+      : [];
+    const unambiguousLegacyAccountId =
+      legacyAccounts.length === 1 ? legacyAccounts[0]?.accountId : undefined;
     return {
       accounts: siteList.accounts.map((grant) => ({
         accountId: grant.accountId,
         email: grant.email,
         requiresReconnect: grant.requiresReconnect,
+        propertiesUnavailable: grant.propertiesUnavailable,
         sites: grant.sites.map((site) => {
           const isSelected = connection?.gscAccountId
             ? connection.gscAccountId === grant.accountId &&
               connection.siteUrl === site.siteUrl
-            : !legacySelectionMatched && connection?.siteUrl === site.siteUrl;
-          if (!connection?.gscAccountId && isSelected) {
-            legacySelectionMatched = true;
-          }
+            : unambiguousLegacyAccountId === grant.accountId &&
+              connection?.siteUrl === site.siteUrl;
           return {
             siteUrl: site.siteUrl,
             permissionLevel: site.permissionLevel,
@@ -109,7 +116,12 @@ export const setGscSite = createServerFn({ method: "POST" })
         properties: { project_id: context.projectId, site_url: data.siteUrl },
       }),
     );
-    return { connected: true as const, siteUrl: connection.siteUrl };
+    return {
+      connected: true as const,
+      siteUrl: connection.siteUrl,
+      connectedByEmail: connection.connectedAccountEmail,
+      connectedAt: connection.createdAt,
+    };
   });
 
 export const disconnectGsc = createServerFn({ method: "POST" })
@@ -117,10 +129,7 @@ export const disconnectGsc = createServerFn({ method: "POST" })
   .validator(projectScopedSchema)
   .handler(async ({ context }) => {
     requireOrgPermission(context, { integration: ["manage"] });
-    await GscService.disconnect({
-      projectId: context.projectId,
-      userId: context.userId,
-    });
+    await GscService.disconnect({ projectId: context.projectId });
     waitUntil(
       captureServerEvent({
         distinctId: context.userId,

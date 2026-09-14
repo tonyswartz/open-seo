@@ -100,6 +100,7 @@ export async function getLatestResults(
       {
         trackingKeywordId: keyword.id,
         keyword: keyword.keyword,
+        matchCase: keyword.matchCase,
         searchVolume: keyword.searchVolume,
         keywordDifficulty: keyword.keywordDifficulty,
         cpc: keyword.cpc,

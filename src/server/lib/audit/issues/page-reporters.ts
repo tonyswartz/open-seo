@@ -50,6 +50,10 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     report("blocked-page", { statusCode: page.statusCode });
     return issues;
   }
+  if (page.fetchClass === "rate_limited") {
+    report("rate-limited-page", { statusCode: page.statusCode });
+    return issues;
+  }
   if (page.fetchClass === "error") {
     return issues;
   }

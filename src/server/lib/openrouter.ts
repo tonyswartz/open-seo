@@ -2,27 +2,17 @@ import {
   createOpenRouter,
   type LanguageModelV3,
 } from "@openrouter/ai-sdk-provider";
-import {
-  getOptionalEnvValue,
-  getRequiredEnvValue,
-} from "@/server/lib/runtime-env";
 
-// OpenRouter model slug used for the in-app chat agents (onboarding + SAM).
-// Override with OPENROUTER_MODEL to swap models without a code change.
+// OpenRouter model slug used for the SAM in-app chat agent. Override with
+// OPENROUTER_MODEL to swap models without a code change.
 const DEFAULT_CHAT_AGENT_MODEL = "openai/gpt-5.6-luna";
 
 // Previous default; kept reachable via OPENROUTER_MODEL for rollback. Its
 // routing needs the ZDR/provider tuning below.
 const MINIMAX_M3 = "minimax/minimax-m3";
 
-export async function getChatAgentModel(): Promise<LanguageModelV3> {
-  const apiKey = await getRequiredEnvValue("OPENROUTER_API_KEY");
-  const modelId = await getOptionalEnvValue("OPENROUTER_MODEL");
-  return buildChatAgentModel(apiKey, modelId);
-}
-
 /**
- * Returns the AI SDK LanguageModel for the chat agents. `usage: { include: true }`
+ * Returns the AI SDK LanguageModel for the chat agent. `usage: { include: true }`
  * turns on OpenRouter usage accounting so each response carries its real USD
  * cost (providerMetadata.openrouter.usage.cost) — which we meter against the
  * shared usage-credit pool.
@@ -39,6 +29,7 @@ export async function getChatAgentModel(): Promise<LanguageModelV3> {
 export function buildChatAgentModel(
   apiKey: string,
   modelId?: string,
+  reasoningEffort: "max" | "low" = "max",
 ): LanguageModelV3 {
   const model = modelId ?? DEFAULT_CHAT_AGENT_MODEL;
   const openrouter = createOpenRouter({ apiKey });
@@ -54,7 +45,7 @@ export function buildChatAgentModel(
   if (model === MINIMAX_M3) {
     return openrouter(model, {
       usage: { include: true },
-      reasoning: { effort: "medium" },
+      reasoning: { effort: reasoningEffort === "low" ? "low" : "medium" },
       provider: {
         order: ["together", "atlas-cloud/fp8"],
         zdr: true,
@@ -65,6 +56,6 @@ export function buildChatAgentModel(
 
   return openrouter(model, {
     usage: { include: true },
-    extraBody: { reasoning: { effort: "max" } },
+    extraBody: { reasoning: { effort: reasoningEffort } },
   });
 }

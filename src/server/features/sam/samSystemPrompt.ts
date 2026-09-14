@@ -12,8 +12,7 @@ type SamProjectContext = {
  * SAM's "soul" — the identity block of the system prompt. The project's shared
  * memory is a separate, read-only context block (rendered from
  * ProjectContextService); this block carries the identity, tool rules, and the
- * discipline for keeping that memory current. Kept deliberately close to the
- * onboarding agent's voice, minus the pre-paywall framing.
+ * discipline for keeping that memory current.
  */
 export function buildSamSystemPrompt(
   project: SamProjectContext,

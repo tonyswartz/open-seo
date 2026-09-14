@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   addKeywordsToConfig: vi.fn(),
   removeKeywordsFromConfig: vi.fn(),
   getKeywordCountForConfig: vi.fn(),
+  updateKeywordMetrics: vi.fn(),
   isHostedServerAuthMode: vi.fn(),
   customerHasPaidPlan: vi.fn(),
   beginRankCheckRun: vi.fn(),
@@ -80,6 +81,27 @@ describe("RankTrackingService management invariants", () => {
     expect(mocks.addKeywordsToConfig).toHaveBeenCalledWith([
       expect.objectContaining({ keyword: "seo" }),
       expect.objectContaining({ keyword: "technical seo" }),
+    ]);
+  });
+
+  it("keeps case as typed when matchCase is set, alongside the lowercase keyword", async () => {
+    mocks.getKeywordsForConfig.mockResolvedValue([
+      { id: "kw_1", keyword: "nodex" },
+    ]);
+    mocks.addKeywordsToConfig.mockImplementation(
+      async (rows: Array<{ id: string }>) => rows.map((row) => row.id),
+    );
+
+    await RankTrackingService.addKeywords(
+      "config_1",
+      "project_1",
+      ["Nodex"],
+      { kind: "direct_user_action" },
+      true,
+    );
+
+    expect(mocks.addKeywordsToConfig).toHaveBeenCalledWith([
+      expect.objectContaining({ keyword: "Nodex", matchCase: true }),
     ]);
   });
 
@@ -316,6 +338,35 @@ describe("RankTrackingService management invariants", () => {
     ).resolves.toEqual({ updated: 0 });
     expect(mocks.customerHasPaidPlan).not.toHaveBeenCalled();
     expect(mocks.fetchKeywordMetricsForList).toHaveBeenCalledTimes(1);
+  });
+
+  it("matches metrics back to a cased keyword and its lowercase twin", async () => {
+    mocks.isHostedServerAuthMode.mockResolvedValue(false);
+    mocks.createDataforseoClient.mockReturnValue({});
+    mocks.getKeywordsForConfig.mockResolvedValue([
+      { id: "kw_1", keyword: "Nodex" },
+      { id: "kw_2", keyword: "nodex" },
+    ]);
+    // DataForSEO echoes keywords back lowercased.
+    mocks.fetchKeywordMetricsForList.mockResolvedValue([
+      { keyword: "nodex", searchVolume: 90, keywordDifficulty: 12, cpc: 0.5 },
+    ]);
+
+    await expect(
+      RankTrackingService.refreshKeywordMetrics(
+        "config_1",
+        "project_1",
+        billingCustomer,
+      ),
+    ).resolves.toEqual({ updated: 2 });
+    expect(mocks.fetchKeywordMetricsForList).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ keywords: ["nodex"] }),
+    );
+    expect(mocks.updateKeywordMetrics).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "kw_1", searchVolume: 90 }),
+      expect.objectContaining({ id: "kw_2", searchVolume: 90 }),
+    ]);
   });
 
   it("rejects missing or foreign trackers with NOT_FOUND before mutation", async () => {

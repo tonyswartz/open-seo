@@ -38,7 +38,6 @@ const mocks = vi.hoisted(() => {
     upsert: vi.fn(),
     getByProjectId: vi.fn(),
     deleteByProjectId: vi.fn(),
-    existsForConnectorAccount: vi.fn(),
   };
 });
 
@@ -54,16 +53,8 @@ vi.mock("@/server/features/ga4/repositories/Ga4ConnectionRepository", () => ({
     upsert: mocks.upsert,
     getByProjectId: mocks.getByProjectId,
     deleteByProjectId: mocks.deleteByProjectId,
-    existsForConnectorAccount: mocks.existsForConnectorAccount,
   },
 }));
-
-function collectSqlParams(value: unknown): unknown[] {
-  if (!value || typeof value !== "object") return [];
-  if ("value" in value && "encoder" in value) return [value.value];
-  if (!("queryChunks" in value) || !Array.isArray(value.queryChunks)) return [];
-  return value.queryChunks.flatMap(collectSqlParams);
-}
 
 describe("Ga4Service", () => {
   beforeEach(() => {
@@ -208,37 +199,10 @@ describe("Ga4Service", () => {
     consoleError.mockRestore();
   });
 
-  it("removes the caller's unused Analytics grant on disconnect", async () => {
-    mocks.getByProjectId.mockResolvedValue({
-      connectedByUserId: "u1",
-      ga4AccountId: "sub-a",
-    });
-    mocks.existsForConnectorAccount.mockResolvedValue(false);
-
-    await Ga4Service.disconnect({ projectId: "p1", userId: "u1" });
-
+  it("disconnects only this project and leaves linked Google accounts intact", async () => {
+    mocks.dbDelete.mockClear();
+    await Ga4Service.disconnect({ projectId: "p1" });
     expect(mocks.deleteByProjectId).toHaveBeenCalledWith("p1");
-    const whereCondition = mocks.deleteWhere.mock.calls[0]?.[0];
-    expect(collectSqlParams(whereCondition)).toEqual(
-      expect.arrayContaining(["u1", "google-analytics", "sub-a"]),
-    );
-  });
-
-  it("keeps a shared grant and never unlinks another member's grant", async () => {
-    mocks.getByProjectId.mockResolvedValue({
-      connectedByUserId: "u1",
-      ga4AccountId: "sub-a",
-    });
-    mocks.existsForConnectorAccount.mockResolvedValue(true);
-    await Ga4Service.disconnect({ projectId: "p1", userId: "u1" });
-    expect(mocks.dbDelete).not.toHaveBeenCalled();
-
-    mocks.getByProjectId.mockResolvedValue({
-      connectedByUserId: "owner",
-      ga4AccountId: "sub-a",
-    });
-    await Ga4Service.disconnect({ projectId: "p2", userId: "other-member" });
-    expect(mocks.existsForConnectorAccount).toHaveBeenCalledTimes(1);
     expect(mocks.dbDelete).not.toHaveBeenCalled();
   });
 });

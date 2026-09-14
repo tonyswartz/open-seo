@@ -9,10 +9,12 @@
  * crawl localhost (the production frontier's SSRF policy blocks private hosts).
  * Every actual detection call below is imported straight from ../src.
  *
- *   pnpm --filter badseo audit                 # against http://localhost:8787
- *   tsx scripts/run-audit.ts http://host:port  # against any origin
+ * From the repository root, with the BadSEO dev server running:
+ *   pnpm --dir badseo run audit http://localhost:8787
+ *   pnpm --dir badseo run audit http://host:port
  */
 import { crawlPage } from "../../src/server/workflows/site-audit-workflow-helpers";
+import { createCrawlThrottle } from "../../src/server/lib/audit/crawl-throttle";
 import {
   discoverUrls,
   parseRobotsTxt,
@@ -94,6 +96,8 @@ async function crawl(origin: string): Promise<{
 
   const pages: CrawledPageResult[] = [];
   const links: CrawlLink[] = [];
+  // One per crawl, as the production crawl chunk does.
+  const throttle = createCrawlThrottle(Date.now() + 90_000);
 
   const enqueue = (url: string, depth: number | null) => {
     const n = normalizeUrl(url);
@@ -107,7 +111,8 @@ async function crawl(origin: string): Promise<{
 
   while (
     (linkQueue.length > 0 || sitemapQueue.length > 0) &&
-    pages.length < MAX_PAGES
+    pages.length < MAX_PAGES &&
+    !throttle.stopped
   ) {
     const batch: CrawlEntry[] = [];
     while (
@@ -123,11 +128,14 @@ async function crawl(origin: string): Promise<{
     }
 
     const crawled = await Promise.all(
-      batch.map((e) => crawlPage(e.url, e.depth, sitemapSet.has(e.url))),
+      batch.map((e) =>
+        crawlPage(e.url, e.depth, sitemapSet.has(e.url), throttle),
+      ),
     );
 
     for (let i = 0; i < crawled.length; i++) {
       const page = crawled[i];
+      if (!page) continue;
       const depth = batch[i].depth;
       pages.push(page);
 
@@ -145,7 +153,8 @@ async function crawl(origin: string): Promise<{
     }
   }
 
-  const completed = linkQueue.length === 0 && sitemapQueue.length === 0;
+  const completed =
+    !throttle.stopped && linkQueue.length === 0 && sitemapQueue.length === 0;
   return { pages, links, completed };
 }
 

@@ -1,10 +1,13 @@
+import { gscConnectionOptions } from "@/client/features/integrations/googleConnectionQueries";
 import * as React from "react";
+import { GoogleConnectedState } from "@/client/features/integrations/GoogleConnectedState";
+import { useGooglePickerResume } from "@/client/features/integrations/useGooglePickerResume";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
-import { GoogleGlyph } from "@/client/features/gsc/GoogleGlyph";
+import { GoogleProjectEmptyState } from "@/client/features/integrations/GoogleProjectEmptyState";
 import { GoogleLinkErrorAlert } from "@/client/features/integrations/GoogleLinkErrorAlert";
 import { IntegrationConnectionCard } from "@/client/features/integrations/IntegrationConnectionCard";
 import { GoogleSearchConsoleLogo } from "@/client/features/integrations/GoogleProductLogos";
@@ -13,39 +16,38 @@ import {
   SitePicker,
   type GscSiteSelection,
 } from "@/client/features/gsc/SitePicker";
-import { startGoogleLink } from "@/client/features/integrations/startGoogleLink";
-import {
-  disconnectGsc,
-  getGscConnection,
-  listGscSites,
-  setGscSite,
-} from "@/serverFunctions/gsc";
+import { disconnectGsc, listGscSites, setGscSite } from "@/serverFunctions/gsc";
 
 const GRANT_STATUS_KEY = ["gscGrantStatus"];
 
 export function SearchConsoleConnectionCard({
   projectId,
+  returnTo,
 }: {
   projectId: string;
+  returnTo?: string;
 }) {
   const hosted = isHostedClientAuthMode();
   const queryClient = useQueryClient();
-  const [picking, setPicking] = React.useState(false);
+  const { picking, setPicking, linkAccount, linking } = useGooglePickerResume(
+    "gsc",
+    projectId,
+  );
   const [selection, setSelection] = React.useState<GscSiteSelection | null>(
     null,
   );
 
-  const connectionKey = ["gscConnection", projectId];
-  const connectionQuery = useQuery({
-    queryKey: connectionKey,
-    queryFn: () => getGscConnection({ data: { projectId } }),
-  });
+  const connectionOptions = gscConnectionOptions(projectId);
+  const connectionKey = connectionOptions.queryKey;
+  const connectionQuery = useQuery(connectionOptions);
   const connection = connectionQuery.data;
   const connected = Boolean(connection?.connected);
+  const hasGrant = Boolean(connection?.currentUserHasGrant);
+  const canManage = connection?.canManage === true;
   const selfHostedNeedsSetup =
     !hosted && connectionQuery.isSuccess && !connection?.googleOAuthConfigured;
 
-  const showPicker = picking || (connection?.currentUserHasGrant && !connected);
+  const showPicker = picking ?? (!connected && hasGrant && canManage);
   const sitesQuery = useQuery({
     queryKey: ["gscSites", projectId],
     queryFn: () => listGscSites({ data: { projectId } }),
@@ -69,7 +71,7 @@ export function SearchConsoleConnectionCard({
   }, [requiresReconnect, queryClient, projectId]);
 
   React.useEffect(() => {
-    if (selection) return;
+    if (!picking || !connected || selection) return;
     for (const account of accounts) {
       const selectedSite = account.sites.find((site) => site.isSelected);
       if (selectedSite) {
@@ -80,16 +82,20 @@ export function SearchConsoleConnectionCard({
         return;
       }
     }
-  }, [accounts, selection]);
+  }, [accounts, selection, picking, connected]);
 
   const setSiteMutation = useMutation({
     mutationFn: (selected: GscSiteSelection) =>
       setGscSite({ data: { projectId, ...selected } }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      queryClient.setQueryData(connectionKey, (current: typeof connection) =>
+        current ? { ...current, ...saved } : current,
+      );
       captureClientEvent("gsc:property_select");
       toast.success("Search Console connected");
-      setPicking(false);
+      queryClient.removeQueries({ queryKey: ["gscSites", projectId] });
       void queryClient.invalidateQueries({ queryKey: connectionKey });
+      setPicking(false);
       void queryClient.invalidateQueries({ queryKey: GRANT_STATUS_KEY });
       // The Search Performance report caches {connected:false}; refresh it so
       // the page shows data right after connecting instead of the stale card.
@@ -108,18 +114,19 @@ export function SearchConsoleConnectionCard({
         queryKey: ["dashboardGscReport", projectId],
       });
     },
-    onError: (error) => toast.error(getStandardErrorMessage(error)),
   });
 
   const disconnectMutation = useMutation({
     mutationFn: () => disconnectGsc({ data: { projectId } }),
     onSuccess: () => {
-      toast.success("Search Console disconnected");
+      toast.success("Search Console disconnected from this project");
+      queryClient.setQueryData(connectionKey, (current: typeof connection) =>
+        current ? { ...current, connected: false } : current,
+      );
+      queryClient.removeQueries({ queryKey: ["gscSites", projectId] });
       setPicking(false);
       setSelection(null);
       void queryClient.invalidateQueries({ queryKey: connectionKey });
-      // Disconnect can drop the account-level grant server-side; keep the
-      // shared grant-status cache (onboarding step + re-engagement nudge) honest.
       void queryClient.invalidateQueries({ queryKey: GRANT_STATUS_KEY });
       void queryClient.invalidateQueries({
         queryKey: ["searchPerformance", projectId],
@@ -134,17 +141,17 @@ export function SearchConsoleConnectionCard({
         queryKey: ["dashboardGscReport", projectId],
       });
     },
-    onError: (error) => toast.error(getStandardErrorMessage(error)),
   });
 
-  const handleConnect = () => void startGoogleLink("gsc", window.location.href);
+  const handleConnect = () =>
+    void linkAccount(returnTo ?? window.location.href);
 
   return (
     <IntegrationConnectionCard
       title="Google Search Console"
       icon={<GoogleSearchConsoleLogo className="size-5" />}
       status={
-        connectionQuery.isLoading
+        connectionQuery.isPending || (connectionQuery.isError && !connection)
           ? undefined
           : selfHostedNeedsSetup
             ? "setup_required"
@@ -154,115 +161,102 @@ export function SearchConsoleConnectionCard({
       }
     >
       <GoogleLinkErrorAlert provider="gsc" className="mb-4" />
-      {connectionQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-base-content/50">
-          <span className="loading loading-spinner loading-sm" />
-          Checking…
+      {connectionQuery.isPending ? (
+        <div
+          role="status"
+          aria-label="Loading connection"
+          className="space-y-3 animate-pulse"
+        >
+          <div className="h-4 w-2/3 rounded bg-base-200" />
+          <div className="h-9 w-24 rounded bg-base-200" />
+        </div>
+      ) : connectionQuery.isError && !connection ? (
+        <div role="alert" className="space-y-3 text-sm">
+          <p className="text-error">
+            Couldn't check this project's connection.
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void connectionQuery.refetch()}
+          >
+            Try again
+          </button>
         </div>
       ) : selfHostedNeedsSetup ? (
         <SelfHostedSetupWarning />
       ) : connected && !picking ? (
-        <ConnectedState
-          siteUrl={connection?.siteUrl ?? ""}
-          connectedByEmail={connection?.connectedByEmail ?? null}
+        <GoogleConnectedState
+          property={connection?.siteUrl ?? ""}
+          canManageAccounts={hasGrant}
+          email={connection?.connectedByEmail}
           onChange={() => {
+            setSiteMutation.reset();
+            disconnectMutation.reset();
             setSelection(null);
             setPicking(true);
           }}
-          onDisconnect={() => disconnectMutation.mutate()}
+          onDisconnect={() => {
+            setSiteMutation.reset();
+            disconnectMutation.mutate();
+          }}
           disconnecting={disconnectMutation.isPending}
+          disabled={linking}
+          canManage={canManage}
         />
       ) : showPicker ? (
-        <SitePicker
-          loading={sitesQuery.isLoading}
-          error={sitesQuery.isError}
-          accounts={accounts}
-          selection={selection}
-          onSelect={setSelection}
-          onSave={() => selection && setSiteMutation.mutate(selection)}
-          saving={setSiteMutation.isPending}
-          onRetry={() => void sitesQuery.refetch()}
-          onReconnect={handleConnect}
-          secondaryAction={
-            connected
-              ? { label: "Cancel", onClick: () => setPicking(false) }
-              : {
-                  label: "Disconnect",
-                  destructive: true,
-                  disabled: disconnectMutation.isPending,
-                  onClick: () => disconnectMutation.mutate(),
-                }
-          }
-        />
+        <fieldset disabled={linking || setSiteMutation.isPending}>
+          <SitePicker
+            readOnly={!canManage}
+            linking={linking}
+            loading={sitesQuery.isLoading}
+            error={sitesQuery.isError}
+            accounts={accounts}
+            selection={selection}
+            onSelect={setSelection}
+            onSave={() => selection && setSiteMutation.mutate(selection)}
+            saving={setSiteMutation.isPending}
+            secondaryAction={{
+              label: "Cancel",
+              disabled: setSiteMutation.isPending,
+              onClick: () => {
+                setPicking(false);
+                setSelection(null);
+                setSiteMutation.reset();
+              },
+            }}
+            onRetry={() => void sitesQuery.refetch()}
+            onReconnect={handleConnect}
+          />
+        </fieldset>
       ) : (
-        <div className="space-y-4">
-          <p className="text-sm text-base-content/70">
-            Connect GSC to see how your website is actually performing in Google
-            Search.
-          </p>
-          <button
-            type="button"
-            onClick={handleConnect}
-            className="inline-flex items-center gap-2.5 rounded-lg border border-base-300 bg-base-100 px-4 py-2.5 text-sm font-semibold text-base-content shadow-sm transition hover:bg-base-200 hover:shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          >
-            <GoogleGlyph className="size-[18px]" />
-            Connect with Google
-          </button>
-        </div>
+        <GoogleProjectEmptyState
+          name="Search Console"
+          hasGrant={hasGrant}
+          canManage={canManage}
+          disabled={linking}
+          onLink={handleConnect}
+          onChoose={() => {
+            setSiteMutation.reset();
+            disconnectMutation.reset();
+            setSelection(null);
+            setPicking(true);
+          }}
+        ></GoogleProjectEmptyState>
       )}
+      {setSiteMutation.isError || disconnectMutation.isError ? (
+        <p role="alert" className="mt-3 text-sm text-error">
+          {getStandardErrorMessage(
+            setSiteMutation.error ?? disconnectMutation.error,
+          )}
+        </p>
+      ) : null}
+      {connectionQuery.isSuccess && !selfHostedNeedsSetup && !canManage ? (
+        <p className="mt-3 text-sm text-base-content/60">
+          Ask an organization owner or admin to change this project's
+          connection.
+        </p>
+      ) : null}
     </IntegrationConnectionCard>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Connected state
-// ---------------------------------------------------------------------------
-
-function ConnectedState({
-  siteUrl,
-  connectedByEmail,
-  onChange,
-  onDisconnect,
-  disconnecting,
-}: {
-  siteUrl: string;
-  connectedByEmail: string | null;
-  onChange: () => void;
-  onDisconnect: () => void;
-  disconnecting: boolean;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200/40 p-3.5">
-        <div className="grid size-9 shrink-0 place-items-center rounded-md border border-base-300 bg-base-100">
-          <GoogleSearchConsoleLogo className="size-5" />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate font-mono text-sm">{siteUrl}</p>
-          {connectedByEmail ? (
-            <p className="truncate text-xs text-base-content/55">
-              Connected by {connectedByEmail}
-            </p>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={onChange}
-        >
-          Change property
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm text-error hover:bg-error/10"
-          onClick={onDisconnect}
-          disabled={disconnecting}
-        >
-          Disconnect
-        </button>
-      </div>
-    </div>
   );
 }

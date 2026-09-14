@@ -288,7 +288,11 @@ async function refreshKeywordMetrics(
 
   const client = createDataforseoClient(billingCustomer);
   const metrics = await fetchKeywordMetricsForList(client, {
-    keywords: keywords.map((kw) => kw.keyword),
+    // The keyword-data APIs are case-insensitive and echo keywords back
+    // lowercased, so ask in lowercase. A match-case keyword can sit next to
+    // its lowercase twin; both then map to the same metrics row and the
+    // request carries no duplicates.
+    keywords: [...new Set(keywords.map((kw) => kw.keyword.toLowerCase()))],
     locationCode: config.locationCode,
     // Trackers can pair any SERP language with any country; the keyword-data
     // APIs only serve the country's own languages.

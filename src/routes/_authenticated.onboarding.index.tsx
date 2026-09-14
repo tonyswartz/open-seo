@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
+import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { OnboardingAccountMenu } from "@/client/features/onboarding/OnboardingAccountMenu";
 import { PostSignupOnboarding } from "@/client/features/onboarding/PostSignupOnboarding";
 import {
@@ -14,8 +16,6 @@ import { captureClientEvent } from "@/client/lib/posthog";
 import { queryClient } from "@/client/tanstack-db";
 import { useSession } from "@/lib/auth-client";
 import { saveOnboardingAnswers } from "@/serverFunctions/onboarding";
-
-const ONBOARDING_EXISTING_USER_CUTOFF = "2026-05-27T00:00:00.000Z";
 
 const clampStep = (step: number) =>
   Math.min(Math.max(0, Math.trunc(step)), ONBOARDING_LAST_STEP);
@@ -52,17 +52,8 @@ function OnboardingPage() {
     return null;
   }
 
-  const userCreatedAt = onboardingQuery.data.userCreatedAt
-    ? Date.parse(onboardingQuery.data.userCreatedAt)
-    : Date.now();
-  const isExistingUser =
-    userCreatedAt < Date.parse(ONBOARDING_EXISTING_USER_CUTOFF);
-  const firstName = session?.user?.name?.split(" ")[0] || "";
-
   return (
     <OnboardingFlow
-      firstName={firstName}
-      isExistingUser={isExistingUser}
       initialAnswers={restoreOnboardingAnswers(onboardingQuery.data.answers)}
       email={session?.user?.email}
     />
@@ -70,13 +61,9 @@ function OnboardingPage() {
 }
 
 function OnboardingFlow({
-  firstName,
-  isExistingUser,
   initialAnswers,
   email,
 }: {
-  firstName: string;
-  isExistingUser: boolean;
   initialAnswers: OnboardingAnswers;
   email: string | undefined;
 }) {
@@ -85,12 +72,20 @@ function OnboardingFlow({
   const [answers, setAnswers] = useState<OnboardingAnswers>(initialAnswers);
 
   const saveMutation = useMutation({
-    mutationFn: (extra: { completed?: boolean }) =>
+    mutationFn: (extra: {
+      completed?: boolean;
+      mcpSetupIntent?: "yes" | "no";
+    }) =>
       saveOnboardingAnswers({
         data: buildOnboardingPayload(answers, step, extra),
       }),
     onError: (error) => {
-      console.error("Failed to save onboarding answers", error);
+      toast.error(
+        getStandardErrorMessage(
+          error,
+          "Couldn’t save your answers. Please try again.",
+        ),
+      );
     },
   });
 
@@ -114,14 +109,18 @@ function OnboardingFlow({
     goToStep(step + 1);
   };
 
-  const handleFinish = async () => {
+  const handleFinish = async (mcpSetupIntent?: "yes" | "no") => {
     try {
-      await saveMutation.mutateAsync({ completed: true });
+      await saveMutation.mutateAsync({
+        completed: true,
+        ...(mcpSetupIntent ? { mcpSetupIntent } : {}),
+      });
       // Refresh the shared cache so the destination's onboarding-redirect guard
       // sees the completed state and doesn't bounce the user back here.
       await queryClient.invalidateQueries({ queryKey: ["onboardingAnswers"] });
     } catch {
-      // Already logged by the mutation's onError; still navigate the user on.
+      // Keep the user here to retry; an unsaved completion would redirect back.
+      return;
     }
     captureClientEvent("onboarding:completed", {
       interests: answers.selectedInterests,
@@ -134,13 +133,6 @@ function OnboardingFlow({
 
   return (
     <PostSignupOnboarding
-      firstName={firstName}
-      title={isExistingUser ? "Tell us about your work" : undefined}
-      helperText={
-        isExistingUser
-          ? "A little context helps us decide where to focus. You can also reach me anytime at ben@openseo.so."
-          : undefined
-      }
       step={step}
       answers={answers}
       onAnswersChange={setAnswers}

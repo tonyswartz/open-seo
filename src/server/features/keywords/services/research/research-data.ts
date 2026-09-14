@@ -19,7 +19,7 @@ type FetchResearchRowsParams = {
   resultLimit: number;
   source: KeywordSource;
   includeClickstreamData?: boolean;
-  // Attribute the DataForSEO spend to a specific feature (e.g. "onboarding");
+  // Attribute the DataForSEO spend to a specific feature (e.g. "agent");
   // defaults to the path-derived feature when omitted.
   creditFeature?: CreditFeature;
 };

@@ -26,6 +26,9 @@ export type ToolAuthContext = {
 
 export type ToolContext = {
   auth: ToolAuthContext;
+  // The in-app agent's turn id, so a tool call's telemetry can be joined to
+  // the `sam:turn` event of the turn that made it. Absent for MCP transports.
+  turnId?: string;
 };
 
 export const MCP_AUTH_CONTEXT_PROP = "openSeoAuth";

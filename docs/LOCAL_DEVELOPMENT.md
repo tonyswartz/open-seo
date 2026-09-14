@@ -49,6 +49,43 @@ pnpm dev:agents
 
 When using a git worktree, [portless](https://github.com/vercel-labs/portless) prefixes the branch name, for example `http://feature-name.open-seo.localhost:1355`.
 
+## Website and BadSEO
+
+The marketing website (`web/`) and audit test site (`badseo/`) are separate
+pnpm projects with their own lockfiles. The root install does not install their
+dependencies. From the repository root, install the project you plan to work on:
+
+```sh
+# Marketing website
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web run dev
+# Validate website changes
+pnpm --dir web run types:check
+pnpm --dir web run build
+
+# Audit test site (keep the root dependencies installed for its audit harness)
+pnpm --dir badseo install --frozen-lockfile
+pnpm --dir badseo run dev
+# Validate BadSEO changes
+pnpm --dir badseo run build
+```
+
+Run BadSEO's audit harness from another terminal while its dev server is running:
+
+```sh
+pnpm --dir badseo run audit http://localhost:8787
+```
+
+Use the root formatter for BadSEO; the website has its own formatter:
+
+```sh
+# From the repository root
+pnpm exec prettier --write "badseo/**/*.{ts,tsx,json,jsonc,md}"
+pnpm --dir web run format:write
+```
+
+See [BadSEO's README](../badseo/README.md) for fixture and audit instructions.
+
 ## Database Commands
 
 Generate migration:

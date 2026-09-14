@@ -29,12 +29,12 @@ After adding the server, approve the OpenSEO login when prompted.
 
 ## Claude Desktop
 
-1. Open Settings -> Connectors.
-2. Click Add custom connector.
+1. Open Customize -> Connectors.
+2. Click Add (or +), then choose Add custom connector.
 3. Paste `https://app.openseo.so/mcp`.
 4. Approve the OpenSEO login when prompted.
 
-Claude Desktop custom connectors require a Claude plan that supports custom connectors.
+Claude Desktop custom connectors are available on Free, Pro, Max, Team, and Enterprise plans. Free plans support one custom connector.
 
 ## Cursor
 

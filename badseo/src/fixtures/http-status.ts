@@ -4,6 +4,17 @@ import { article } from "./helpers";
 
 const CAT = "HTTP status & links";
 
+/** 429s answered before a request is let through; the served request resets it. */
+const RATE_LIMIT_REFUSALS = 2;
+let refusals = 0;
+
+function stillRateLimited(): boolean {
+  refusals += 1;
+  if (refusals <= RATE_LIMIT_REFUSALS) return true;
+  refusals = 0;
+  return false;
+}
+
 // 18 — a URL that returns 404 (discovered via sitemap) --------------------
 const notFound: Fixture = {
   path: "/status/not-found",
@@ -85,7 +96,7 @@ const blocked: Fixture = {
   name: "Crawler blocked (403)",
   summary: 'Returns 403 Forbidden. The honest "we could not read this" case.',
   lesson:
-    "A 403, a 429, or a bot challenge means the crawler was blocked. A good audit says so, instead of reporting the page as broken. Real search bots may hit the same wall.",
+    "A 403 or a bot challenge means the crawler was blocked. A good audit says so, instead of reporting the page as broken. Real search bots may hit the same wall.",
   expectedIssues: ["blocked-page"],
   linkedFromCatalog: false,
   inSitemap: true,
@@ -101,7 +112,7 @@ const blocked: Fixture = {
           sections: [
             {
               h2: "Blocked is not the same as broken",
-              body: "When a page answers a crawler with 403, 429, or a challenge screen, the honest conclusion is not that the page is broken. It is that the crawler was not allowed to see it. A good audit says exactly that. Reporting a blocked page as a content problem would send you looking for a bug that is not there, when the real issue is access.",
+              body: "When a page answers a crawler with 403 or a challenge screen, the honest conclusion is not that the page is broken. It is that the crawler was not allowed to see it. A good audit says exactly that. Reporting a blocked page as a content problem would send you looking for a bug that is not there, when the real issue is access.",
             },
             {
               h2: "When your own protection backfires",
@@ -140,9 +151,93 @@ const brokenInternalLink: Fixture = {
     ),
 };
 
+// 20b — rate limited for the first requests, then served (429 → 200) --------
+const rateLimitedThenOk: Fixture = {
+  path: "/status/rate-limited",
+  category: CAT,
+  name: "Rate limited, then served (429)",
+  summary: `Answers 429 with Retry-After for the first ${RATE_LIMIT_REFUSALS} requests, then serves the page.`,
+  lesson:
+    "A 429 means the crawler is going too fast, not that it is unwelcome. A crawler that slows down and comes back gets the page; one that gives up records a page that was never actually broken.",
+  // Nothing to report: the audit backs off, retries, and reads the page.
+  expectedIssues: [],
+  handler: () => {
+    const html = renderPage({
+      fixture: rateLimitedThenOk,
+      title: "Rate limited, then served",
+      metaDescription:
+        "This URL refuses the first couple of requests with a 429 and a Retry-After header, then serves the page normally.",
+      bodyHtml: article({
+        h1: "429 first, then the actual page",
+        lede: "The first requests to this URL are refused with 429 Too Many Requests. Wait a moment and it answers normally.",
+        sections: [
+          {
+            h2: "429 is a speed limit, not a wall",
+            body: "Too Many Requests is the server asking a client to slow down. It is not an access denial and it is not a broken page. Plenty of sites put a rate limit in front of everything, so a crawler that fires twenty parallel requests trips it immediately even though every one of those pages is perfectly healthy and public.",
+          },
+          {
+            h2: "What a well-behaved crawler does",
+            body: "It waits. If the response carries a Retry-After header it honours it, otherwise it backs off for a growing delay, and it slows the rest of the crawl down at the same time rather than retrying one URL while hammering the next. Then it asks again. Search engines behave this way too, which is why a site that answers 429 constantly gets crawled less often and sees new pages indexed more slowly.",
+          },
+          {
+            h2: "Why reporting it as blocked is wrong",
+            body: "Recording a rate-limited URL as blocked tells the owner to go change their bot protection, which is not the problem. The page is public, the crawler was simply going too fast for it. The honest report is either the page itself, after a retry, or a note that the limit held even after the crawler slowed down.",
+          },
+        ],
+      }),
+    });
+    return stillRateLimited()
+      ? htmlResponse(html, { status: 429, headers: { "retry-after": "1" } })
+      : htmlResponse(html);
+  },
+};
+
+// 20c — rate limited on every request, no Retry-After ----------------------
+const rateLimitedAlways: Fixture = {
+  path: "/status/rate-limited-always",
+  category: CAT,
+  name: "Rate limited on every request (429)",
+  summary: "Answers 429 to every request, with no Retry-After header.",
+  lesson:
+    "If a URL still returns 429 after the crawler has slowed down and retried, the page genuinely cannot be audited — but it is rate limited, not blocked, and the fix is the rate limit rather than the bot rules.",
+  expectedIssues: ["rate-limited-page"],
+  linkedFromCatalog: false,
+  inSitemap: true,
+  handler: () =>
+    htmlResponse(
+      renderPage({
+        fixture: rateLimitedAlways,
+        title: "429 on every single request",
+        metaDescription:
+          "This URL answers 429 Too Many Requests to every request, no matter how long the crawler waits between them.",
+        bodyHtml: article({
+          h1: "429, every time",
+          lede: "No amount of backing off gets a different answer out of this URL.",
+          sections: [
+            {
+              h2: "When backing off is not enough",
+              body: "A crawler should slow down and retry a 429, but it cannot wait forever: a thousand-page audit that pauses a minute per refusal never finishes. After a few spaced-out attempts the honest thing is to record what happened and move on to the rest of the site.",
+            },
+            {
+              h2: "This is a rate limit, not a block",
+              body: "The distinction matters because the fixes are different. A blocked page means bot protection decided the crawler was not welcome, and the fix is an allowlist rule. A rate-limited page means the server capped how many requests it will answer, and the fix is a higher limit, an exception for known crawlers, or a smaller crawl. Reporting one as the other sends the site owner into the wrong settings screen.",
+            },
+            {
+              h2: "Search engines see this too",
+              body: "Googlebot treats sustained 429s as a signal to crawl less. If a rate limit is strict enough to stop an audit crawler, it is strict enough to slow down how quickly your new and updated pages get discovered and indexed. That makes it worth fixing, not just working around.",
+            },
+          ],
+        }),
+      }),
+      { status: 429 },
+    ),
+};
+
 export const httpStatusFixtures: Fixture[] = [
   notFound,
   serverError,
   blocked,
+  rateLimitedThenOk,
+  rateLimitedAlways,
   brokenInternalLink,
 ];

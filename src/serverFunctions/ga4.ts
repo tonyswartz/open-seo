@@ -12,6 +12,7 @@ import {
   createSelfHostedGoogleAuthorizationUrl,
   GA4_INTEGRATION,
 } from "@/server/features/google/selfHostedOAuth";
+import { hasOrgPermission } from "@/lib/org-permissions";
 import { requireOrgPermission } from "@/server/auth/org-gate";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { captureServerEvent } from "@/server/lib/posthog";
@@ -43,6 +44,7 @@ export const getGa4Connection = createServerFn({ method: "POST" })
       ]);
     return {
       connected: Boolean(connection),
+      canManage: hasOrgPermission(context.role, { integration: ["manage"] }),
       currentUserHasGrant,
       googleOAuthConfigured: hosted || ga4Configured,
       propertyId: connection?.propertyId ?? null,
@@ -183,6 +185,10 @@ export const setGa4Property = createServerFn({ method: "POST" })
       connected: true as const,
       propertyId: connection.propertyId,
       propertyDisplayName: connection.propertyDisplayName,
+      propertyTimeZone: connection.propertyTimeZone,
+      propertyCurrencyCode: connection.propertyCurrencyCode,
+      connectedByEmail: connection.connectedAccountEmail,
+      connectedAt: connection.createdAt,
     };
   });
 
@@ -191,10 +197,7 @@ export const disconnectGa4 = createServerFn({ method: "POST" })
   .validator(projectScopedSchema)
   .handler(async ({ context }) => {
     requireOrgPermission(context, { integration: ["manage"] });
-    await Ga4Service.disconnect({
-      projectId: context.projectId,
-      userId: context.userId,
-    });
+    await Ga4Service.disconnect({ projectId: context.projectId });
     waitUntil(
       captureServerEvent({
         distinctId: context.userId,

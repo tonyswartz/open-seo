@@ -1,3 +1,4 @@
+import { AgentSetup } from "@/client/features/ai-mcp/AgentSetup";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowUpRight, ShieldAlert } from "lucide-react";
 import { getAuthMode, isHostedClientAuthMode } from "@/lib/auth-mode";
@@ -32,11 +33,11 @@ const SKILLS_MANUAL_INSTALL = `git clone https://github.com/every-app/open-seo.g
 
 # Codex
 mkdir -p ~/.codex/skills
-cp -R open-seo/.agents/skills/* ~/.codex/skills/
+cp -R open-seo/plugins/openseo/skills/* ~/.codex/skills/
 
 # Claude Code
 mkdir -p ~/.claude/skills
-cp -R open-seo/.agents/skills/* ~/.claude/skills/`;
+cp -R open-seo/plugins/openseo/skills/* ~/.claude/skills/`;
 
 export const Route = createFileRoute("/_app/ai")({
   component: AiPage,
@@ -56,6 +57,10 @@ function AiPage() {
           Connect your AI agent to OpenSEO. Run keyword research, SERP analysis,
           domain lookups, and backlink reviews from your editor or chat.
         </p>
+
+        <section className="mt-8 rounded-xl border border-base-300 p-5">
+          <AgentSetup />
+        </section>
 
         {getAuthMode(import.meta.env.AUTH_MODE) === "cloudflare_access" ? (
           <div className="alert alert-warning mt-6 text-sm" role="alert">
@@ -143,11 +148,12 @@ function AiPage() {
             >
               <ol className="ml-5 list-decimal space-y-1.5 text-sm text-base-content/70 leading-relaxed">
                 <li>
-                  Open <span className="text-base-content">Settings</span> →{" "}
+                  Open <span className="text-base-content">Customize</span> →{" "}
                   <span className="text-base-content">Connectors</span>.
                 </li>
                 <li>
-                  Click{" "}
+                  Click <span className="text-base-content">Add</span> (or +),
+                  then choose{" "}
                   <span className="font-medium text-base-content">
                     Add custom connector
                   </span>
@@ -168,7 +174,8 @@ function AiPage() {
                 </li>
               </ol>
               <p className="text-xs text-base-content/55 leading-relaxed">
-                Requires a Claude Pro, Max, Team, or Enterprise plan.
+                Available on Claude Free, Pro, Max, Team, and Enterprise plans.
+                Free plans support one custom connector.
               </p>
             </Collapsible>
 
