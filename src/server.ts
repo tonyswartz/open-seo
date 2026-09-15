@@ -27,6 +27,8 @@ import { sweepDubReferredOrganizations } from "@/server/referrals/dub";
 import { maybeSendSelfHostHeartbeat } from "@/server/lib/self-host-telemetry";
 import { handleGdprStorageErasure } from "@/server/gdpr/storage-erasure";
 import { GDPR_STORAGE_ERASURE_PATH } from "@/shared/gdpr-erasure";
+import { handleSeoHistoryRequest } from "@/server/seo-history/http";
+import { SEO_HISTORY_HTTP_PATH } from "@/shared/seo-history";
 
 const appFetch = createStartHandler(defaultStreamHandler);
 const openSeoOAuthProvider = createOpenSeoOAuthProvider(appFetch);
@@ -116,6 +118,13 @@ function handleFetch(
 
   if (pathname === GDPR_STORAGE_ERASURE_PATH) {
     return handleGdprStorageErasure(publicRequest, env);
+  }
+
+  if (
+    pathname === SEO_HISTORY_HTTP_PATH ||
+    pathname.startsWith(`${SEO_HISTORY_HTTP_PATH}/`)
+  ) {
+    return handleSeoHistoryRequest(publicRequest);
   }
 
   if (pathname.startsWith("/agents/")) {

@@ -20,6 +20,11 @@ import { createRankTrackerTool } from "@/server/mcp/tools/create-rank-tracker";
 import { deleteRankTrackerTool } from "@/server/mcp/tools/delete-rank-tracker";
 import { estimateRankTrackerCostTool } from "@/server/mcp/tools/estimate-rank-tracker-cost";
 import { getRankTrackerTool } from "@/server/mcp/tools/get-rank-tracker";
+import { getRankTrackerHistoryTool } from "@/server/mcp/tools/get-rank-tracker-history";
+import {
+  getSeoHistoryTool,
+  recordSeoHistoryTool,
+} from "@/server/mcp/tools/seo-history-tools";
 import { removeRankTrackingKeywordsTool } from "@/server/mcp/tools/remove-rank-tracking-keywords";
 import { runRankTrackerTool } from "@/server/mcp/tools/run-rank-tracker";
 import { getSerpResultsTool } from "@/server/mcp/tools/get-serp-results";
@@ -138,7 +143,7 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
       title: "OpenSEO",
       version: "0.0.12",
       description:
-        "SEO research tools for AI agents: keyword research and metrics, SERP and local SERP results, domain and backlink analysis, rank tracking, and Google Search Console performance.",
+        "SEO research tools for AI agents: keyword research and metrics, SERP and local SERP results, domain and backlink analysis, rank tracking and rank history, stored weekly SEO snapshots, and Google Search Console performance.",
       websiteUrl: "https://openseo.so",
       icons: [
         {
@@ -178,6 +183,9 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
   register(getSerpResultsTool);
   register(createRankTrackerTool);
   register(getRankTrackerTool);
+  register(getRankTrackerHistoryTool);
+  register(recordSeoHistoryTool);
+  register(getSeoHistoryTool);
   register(addRankTrackingKeywordsTool);
   register(removeRankTrackingKeywordsTool);
   register(deleteRankTrackerTool);

@@ -47,6 +47,9 @@ declare namespace Cloudflare {
     DUB_API_KEY?: string;
     // HMAC secret for the operator-only GDPR storage-erasure endpoint.
     GDPR_ERASURE_SECRET?: string;
+    // Bearer secret for GET /api/seo-history (LegalKanban read-only access).
+    // Distinct from the MCP API key, which can run paid checks and delete trackers.
+    OPENSEO_HISTORY_READ_KEY?: string;
 
     // Cloudflare Turnstile — signup captcha (hosted only). Secret verifies
     // tokens server-side; site key is public and inlined into the client build.
