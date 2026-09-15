@@ -344,6 +344,60 @@ async function getTracker(configId: string, projectId: string) {
   return { config, results };
 }
 
+async function getKeywordHistory(
+  configId: string,
+  projectId: string,
+  trackingKeywordId: string,
+  sinceDays: number,
+) {
+  const config = await getValidatedConfig(configId, projectId);
+  const rows = await RankTrackingRepository.getKeywordHistory(
+    configId,
+    trackingKeywordId,
+    sinceDays,
+  );
+  return { config, rows };
+}
+
+async function getConfigTrend(
+  configId: string,
+  projectId: string,
+  device: "desktop" | "mobile",
+  sinceDays: number,
+) {
+  const config = await getValidatedConfig(configId, projectId);
+  const rows = await RankTrackingRepository.getConfigTrend(
+    configId,
+    device,
+    sinceDays,
+  );
+  return { config, device, rows };
+}
+
+async function getPositionMatrix(
+  configId: string,
+  projectId: string,
+  device: "desktop" | "mobile",
+  runLimit: number,
+) {
+  const config = await getValidatedConfig(configId, projectId);
+  const [rows, keywords] = await Promise.all([
+    RankTrackingRepository.getPositionMatrix(configId, device, runLimit),
+    RankTrackingRepository.getKeywordsForConfig(configId),
+  ]);
+  const names = new Map(
+    keywords.map((keyword) => [keyword.id, keyword.keyword]),
+  );
+  return {
+    config,
+    device,
+    rows: rows.map((row) => ({
+      ...row,
+      keyword: names.get(row.trackingKeywordId) ?? row.trackingKeywordId,
+    })),
+  };
+}
+
 async function requireRankCheckAccess(organizationId: string) {
   if (!(await isHostedServerAuthMode())) return;
   if (await customerHasPaidPlan(organizationId)) return;
@@ -418,5 +472,8 @@ export const RankTrackingService = {
   refreshKeywordMetrics,
   getConfigs,
   getTracker,
+  getKeywordHistory,
+  getConfigTrend,
+  getPositionMatrix,
   requireRankCheckAccess,
 };

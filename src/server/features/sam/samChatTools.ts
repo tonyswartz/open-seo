@@ -12,6 +12,11 @@ import { addRankTrackingKeywordsTool } from "@/server/mcp/tools/add-rank-trackin
 import { createRankTrackerTool } from "@/server/mcp/tools/create-rank-tracker";
 import { estimateRankTrackerCostTool } from "@/server/mcp/tools/estimate-rank-tracker-cost";
 import { getRankTrackerTool } from "@/server/mcp/tools/get-rank-tracker";
+import { getRankTrackerHistoryTool } from "@/server/mcp/tools/get-rank-tracker-history";
+import {
+  getSeoHistoryTool,
+  recordSeoHistoryTool,
+} from "@/server/mcp/tools/seo-history-tools";
 import { removeRankTrackingKeywordsTool } from "@/server/mcp/tools/remove-rank-tracking-keywords";
 import { runRankTrackerTool } from "@/server/mcp/tools/run-rank-tracker";
 import { getSerpResultsTool } from "@/server/mcp/tools/get-serp-results";
@@ -376,6 +381,9 @@ export function buildSamMcpTools(
     get_serp_results: adaptTool(getSerpResultsTool),
     create_rank_tracker: adaptTool(createRankTrackerTool),
     get_rank_tracker: adaptTool(getRankTrackerTool),
+    get_rank_tracker_history: adaptTool(getRankTrackerHistoryTool),
+    record_seo_history: adaptTool(recordSeoHistoryTool),
+    get_seo_history: adaptTool(getSeoHistoryTool),
     add_rank_tracking_keywords: adaptTool(addRankTrackingKeywordsTool),
     remove_rank_tracking_keywords: adaptTool(removeRankTrackingKeywordsTool),
     estimate_rank_tracker_cost: adaptTool(estimateRankTrackerCostTool),
