@@ -1,4 +1,4 @@
-export type GoogleIntegrationKey = "google_ads" | "gsc" | "ga4";
+type GoogleIntegrationKey = "google_ads" | "gsc" | "ga4";
 
 type ProbeInput = {
   integration: GoogleIntegrationKey;
@@ -92,7 +92,7 @@ export function extractTokenFailureDetails(
   };
 }
 
-export function redactedTokenSubjectHash(
+function redactedTokenSubjectHash(
   accountId: string | null,
 ): string | null {
   if (!accountId) return null;

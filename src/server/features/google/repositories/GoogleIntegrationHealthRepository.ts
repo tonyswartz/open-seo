@@ -2,9 +2,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { googleIntegrationHealth } from "@/db/schema";
 
-export type GoogleIntegrationKey = "google_ads" | "gsc" | "ga4";
-export type GoogleIntegrationHealthRow =
-  typeof googleIntegrationHealth.$inferSelect;
+type GoogleIntegrationKey = "google_ads" | "gsc" | "ga4";
+type GoogleIntegrationHealthRow = typeof googleIntegrationHealth.$inferSelect;
 
 type BaseInput = {
   projectId: string;
