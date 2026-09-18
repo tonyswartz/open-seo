@@ -29,6 +29,7 @@ vi.mock(
   }),
 );
 
+import { GoogleAdsReportError } from "@/server/lib/googleAdsErrors";
 import { handleSeoHistoryRequest } from "./http";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -146,6 +147,29 @@ describe("GET /api/seo-history", () => {
     });
     expect(mocks.getPositionMatrix).not.toHaveBeenCalled();
     expect(mocks.list).not.toHaveBeenCalled();
+  });
+
+  it("returns structured JSON for Google Ads reconnect errors", async () => {
+    mocks.listLeads.mockRejectedValue(
+      new GoogleAdsReportError(
+        "google_ads_reconnect_required",
+        "Google Ads connection expired. Reconnect the Google account.",
+      ),
+    );
+
+    const response = await handleSeoHistoryRequest(
+      request(
+        `/api/seo-history/local-services-leads?projectId=${projectId}&startDate=2026-08-22&endDate=2026-09-18`,
+        { Authorization: "Bearer read-only-key" },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    const body: { ok: boolean; error: string; message: string } =
+      await response.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("google_ads_reconnect_required");
+    expect(body.message).toContain("Reconnect");
   });
 
   it("requires both startDate and endDate for local services leads", async () => {
