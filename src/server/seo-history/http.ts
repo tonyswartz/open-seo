@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { RankTrackingService } from "@/server/features/rank-tracking/services/RankTrackingService";
+import { LocalServicesReportingService } from "@/server/features/google-ads/services/LocalServicesReportingService";
 import { SeoHistoryService } from "@/server/features/seo-history/services/SeoHistoryService";
 import { asAppError } from "@/server/lib/errors";
 import { SEO_HISTORY_HTTP_PATH } from "@/shared/seo-history";
@@ -58,8 +59,19 @@ export async function handleSeoHistoryRequest(
   const url = new URL(request.url);
   const rest = url.pathname.slice(SEO_HISTORY_HTTP_PATH.length);
   const section =
-    rest === "/ranks" ? "ranks" : rest === "/snapshots" ? "snapshots" : "all";
-  if (rest && rest !== "/ranks" && rest !== "/snapshots") {
+    rest === "/ranks"
+      ? "ranks"
+      : rest === "/snapshots"
+        ? "snapshots"
+        : rest === "/local-services-leads"
+          ? "localServicesLeads"
+          : "all";
+  if (
+    rest &&
+    rest !== "/ranks" &&
+    rest !== "/snapshots" &&
+    rest !== "/local-services-leads"
+  ) {
     return json(404, { error: "not_found" });
   }
 
@@ -70,6 +82,25 @@ export async function handleSeoHistoryRequest(
 
   try {
     const payload: Record<string, unknown> = { projectId };
+
+    if (section === "localServicesLeads") {
+      const startDate = url.searchParams.get("startDate")?.trim() || undefined;
+      const endDate = url.searchParams.get("endDate")?.trim() || undefined;
+      if (Boolean(startDate) !== Boolean(endDate)) {
+        return json(400, { error: "Provide both startDate and endDate, or neither." });
+      }
+      const result = await LocalServicesReportingService.listLeads({
+        projectId,
+        startDate,
+        endDate,
+        limit: optionalInt(url.searchParams.get("limit"), 50, 200),
+      });
+      payload.currencyCode = result.currencyCode;
+      payload.startDate = result.dateRange.startDate;
+      payload.endDate = result.dateRange.endDate;
+      payload.leads = result.leads;
+      return json(200, payload);
+    }
 
     if (section === "ranks" || section === "all") {
       const trackerId = url.searchParams.get("trackerId")?.trim();
