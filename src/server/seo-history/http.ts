@@ -3,6 +3,7 @@ import { RankTrackingService } from "@/server/features/rank-tracking/services/Ra
 import { LocalServicesReportingService } from "@/server/features/google-ads/services/LocalServicesReportingService";
 import { SeoHistoryService } from "@/server/features/seo-history/services/SeoHistoryService";
 import { asAppError } from "@/server/lib/errors";
+import { GoogleAdsReportError } from "@/server/lib/googleAdsErrors";
 import { SEO_HISTORY_HTTP_PATH } from "@/shared/seo-history";
 import {
   seoHistoryKindSchema,
@@ -40,6 +41,35 @@ function optionalInt(
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, max);
+}
+
+function googleAdsReportStatus(code: GoogleAdsReportError["code"]): number {
+  switch (code) {
+    case "validation_error":
+    case "google_ads_request_rejected":
+      return 400;
+    case "google_ads_not_connected":
+    case "google_ads_reconnect_required":
+    case "google_ads_setup_required":
+    case "google_ads_account_inaccessible":
+      return 409;
+    case "google_ads_quota_exhausted":
+      return 429;
+    case "google_ads_access_pending":
+    case "google_ads_upstream_unavailable":
+    case "google_ads_malformed_response":
+      return 503;
+    default:
+      return 502;
+  }
+}
+
+function googleAdsReportResponse(error: GoogleAdsReportError): Response {
+  return json(googleAdsReportStatus(error.code), {
+    ok: false,
+    error: error.code,
+    message: error.message,
+  });
 }
 
 export async function handleSeoHistoryRequest(
@@ -142,6 +172,9 @@ export async function handleSeoHistoryRequest(
 
     return json(200, payload);
   } catch (error) {
+    if (error instanceof GoogleAdsReportError) {
+      return googleAdsReportResponse(error);
+    }
     const appError = asAppError(error);
     if (appError?.code === "NOT_FOUND") {
       return json(404, { error: "not_found" });
