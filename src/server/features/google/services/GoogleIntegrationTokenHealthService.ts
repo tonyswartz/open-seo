@@ -92,9 +92,7 @@ export function extractTokenFailureDetails(
   };
 }
 
-function redactedTokenSubjectHash(
-  accountId: string | null,
-): string | null {
+function redactedTokenSubjectHash(accountId: string | null): string | null {
   if (!accountId) return null;
   let hash = 2166136261;
   for (let i = 0; i < accountId.length; i += 1) {
