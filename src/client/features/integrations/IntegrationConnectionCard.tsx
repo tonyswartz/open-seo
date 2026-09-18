@@ -52,9 +52,9 @@ function ConnectionStatusPill({
           ? "border-success/30 bg-success/10 text-success"
           : reconnectRequired
             ? "border-warning/30 bg-warning/10 text-warning"
-          : setupRequired
-            ? "border-warning/30 bg-warning/10 text-warning"
-            : "border-base-300 bg-base-200 text-base-content/60",
+            : setupRequired
+              ? "border-warning/30 bg-warning/10 text-warning"
+              : "border-base-300 bg-base-200 text-base-content/60",
       ].join(" ")}
     >
       <span
@@ -64,18 +64,18 @@ function ConnectionStatusPill({
             ? "bg-success"
             : reconnectRequired
               ? "bg-warning"
-            : setupRequired
-              ? "bg-warning"
-              : "bg-base-content/40",
+              : setupRequired
+                ? "bg-warning"
+                : "bg-base-content/40",
         ].join(" ")}
       />
       {connected
         ? "Connected"
         : reconnectRequired
           ? "Reconnect required"
-        : setupRequired
-          ? "Setup required"
-          : "Not connected"}
+          : setupRequired
+            ? "Setup required"
+            : "Not connected"}
     </span>
   );
 }

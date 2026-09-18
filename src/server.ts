@@ -194,7 +194,10 @@ export default {
         try {
           await runDailyGoogleIntegrationHealthProbe();
         } catch (err) {
-          console.error("[cron] Google integration token health probe failed:", err);
+          console.error(
+            "[cron] Google integration token health probe failed:",
+            err,
+          );
         }
       }
       return;

@@ -55,7 +55,9 @@ function extractMessage(payload: Record<string, unknown>): string | null {
   );
 }
 
-export function extractTokenFailureDetails(error: unknown): TokenFailureDetails {
+export function extractTokenFailureDetails(
+  error: unknown,
+): TokenFailureDetails {
   if (!(error instanceof Error)) {
     return {
       errorClass: "UnknownError",
@@ -90,7 +92,9 @@ export function extractTokenFailureDetails(error: unknown): TokenFailureDetails 
   };
 }
 
-export function redactedTokenSubjectHash(accountId: string | null): string | null {
+export function redactedTokenSubjectHash(
+  accountId: string | null,
+): string | null {
   if (!accountId) return null;
   let hash = 2166136261;
   for (let i = 0; i < accountId.length; i += 1) {
@@ -112,9 +116,8 @@ async function probeRefreshToken(input: ProbeInput): Promise<void> {
 }
 
 async function getHealthRepository() {
-  const module = await import(
-    "@/server/features/google/repositories/GoogleIntegrationHealthRepository"
-  );
+  const module =
+    await import("@/server/features/google/repositories/GoogleIntegrationHealthRepository");
   return module.GoogleIntegrationHealthRepository;
 }
 

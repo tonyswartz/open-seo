@@ -53,17 +53,16 @@ async function remove(input: AccountInput) {
   // reconnects cannot lose a newly reattached token.
   await runBatch((tx) => [
     tx.delete(connections).where(usage),
-    tx.delete(account).where(
-      and(
-        grant,
-        notExists(
-          db
-            .select({ id: connections.id })
-            .from(connections)
-            .where(usage),
+    tx
+      .delete(account)
+      .where(
+        and(
+          grant,
+          notExists(
+            db.select({ id: connections.id }).from(connections).where(usage),
+          ),
         ),
       ),
-    ),
   ]);
 }
 

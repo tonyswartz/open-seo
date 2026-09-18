@@ -9,7 +9,10 @@ import {
   errorLogDetails,
   isAccessPendingReason,
 } from "@/server/lib/googleAdsErrors";
-import { GOOGLE_ADS_OAUTH_PROVIDER_ID, GOOGLE_ADS_OAUTH_SCOPES } from "@/shared/google-ads";
+import {
+  GOOGLE_ADS_OAUTH_PROVIDER_ID,
+  GOOGLE_ADS_OAUTH_SCOPES,
+} from "@/shared/google-ads";
 import {
   extractTokenFailureDetails,
   logReconnectFailure,
@@ -548,9 +551,8 @@ async function getPerformance(input: {
   startDate?: string;
   endDate?: string;
 }): Promise<LocalServicesPerformance> {
-  let healthContext:
-    | { connectedByUserId: string; accountId: string }
-    | null = null;
+  let healthContext: { connectedByUserId: string; accountId: string } | null =
+    null;
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
     healthContext = {
@@ -653,12 +655,12 @@ async function getPerformance(input: {
       },
     };
     await recordRefreshSuccess({
-        projectId: input.projectId,
-        integration: "google_ads",
-        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
-        connectedByUserId: connection.connectedByUserId,
-        accountId: connection.googleAdsAccountId,
-      });
+      projectId: input.projectId,
+      integration: "google_ads",
+      providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    });
     return performance;
   } catch (error) {
     if (healthContext && isReconnectFailure(error)) {
@@ -698,9 +700,8 @@ async function listLeads(input: {
   dateRange: { startDate: string; endDate: string };
 }> {
   const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 1_000);
-  let healthContext:
-    | { connectedByUserId: string; accountId: string }
-    | null = null;
+  let healthContext: { connectedByUserId: string; accountId: string } | null =
+    null;
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
     healthContext = {
@@ -727,12 +728,12 @@ async function listLeads(input: {
       dateRange,
     };
     await recordRefreshSuccess({
-        projectId: input.projectId,
-        integration: "google_ads",
-        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
-        connectedByUserId: connection.connectedByUserId,
-        accountId: connection.googleAdsAccountId,
-      });
+      projectId: input.projectId,
+      integration: "google_ads",
+      providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    });
     return result;
   } catch (error) {
     if (healthContext && isReconnectFailure(error)) {
@@ -993,9 +994,8 @@ async function provideLeadFeedback(
 ): Promise<LeadFeedbackResult> {
   const leadId = assertLeadId(input.leadId);
   const survey = validateSurvey(input);
-  let healthContext:
-    | { connectedByUserId: string; accountId: string }
-    | null = null;
+  let healthContext: { connectedByUserId: string; accountId: string } | null =
+    null;
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
     healthContext = {
@@ -1070,12 +1070,12 @@ async function provideLeadFeedback(
       charged: state.charged,
     };
     await recordRefreshSuccess({
-        projectId: input.projectId,
-        integration: "google_ads",
-        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
-        connectedByUserId: connection.connectedByUserId,
-        accountId: connection.googleAdsAccountId,
-      });
+      projectId: input.projectId,
+      integration: "google_ads",
+      providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    });
     return result;
   } catch (error) {
     if (healthContext && isReconnectFailure(error)) {

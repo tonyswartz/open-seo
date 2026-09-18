@@ -120,9 +120,9 @@ export function GoogleAdsConnectionCard({ projectId }: { projectId: string }) {
             ? "setup_required"
             : connection?.reconnectRequired
               ? "reconnect_required"
-            : connected
-              ? "connected"
-              : "disconnected"
+              : connected
+                ? "connected"
+                : "disconnected"
       }
     >
       <GoogleLinkErrorAlert provider="gads" className="mb-4" />

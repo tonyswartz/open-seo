@@ -135,9 +135,9 @@ export function GoogleAnalyticsConnectionCard({
               ? "setup_required"
               : connection?.reconnectRequired
                 ? "reconnect_required"
-              : connected
-                ? "connected"
-                : "disconnected"
+                : connected
+                  ? "connected"
+                  : "disconnected"
         }
       >
         <GoogleLinkErrorAlert provider="ga4" className="mb-4" />

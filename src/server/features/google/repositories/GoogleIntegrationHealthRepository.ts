@@ -114,12 +114,13 @@ async function markRefreshFailure(input: FailureInput): Promise<number> {
         lastRefreshErrorCode: input.errorCode,
         lastRefreshErrorSuberror: input.errorSuberror,
         lastRefreshErrorMessage: input.errorMessage,
-        consecutiveRefreshFailures:
-          sql`${googleIntegrationHealth.consecutiveRefreshFailures} + 1`,
+        consecutiveRefreshFailures: sql`${googleIntegrationHealth.consecutiveRefreshFailures} + 1`,
         updatedAt: now,
       },
     })
-    .returning({ failures: googleIntegrationHealth.consecutiveRefreshFailures });
+    .returning({
+      failures: googleIntegrationHealth.consecutiveRefreshFailures,
+    });
   return row?.failures ?? 1;
 }
 

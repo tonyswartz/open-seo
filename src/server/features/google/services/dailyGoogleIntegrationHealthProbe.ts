@@ -1,5 +1,9 @@
 import { db } from "@/db";
-import { ga4Connections, googleAdsConnections, gscConnections } from "@/db/schema";
+import {
+  ga4Connections,
+  googleAdsConnections,
+  gscConnections,
+} from "@/db/schema";
 import { GA4_OAUTH_PROVIDER_ID, GA4_OAUTH_SCOPES } from "@/shared/ga4";
 import {
   GOOGLE_ADS_OAUTH_PROVIDER_ID,
