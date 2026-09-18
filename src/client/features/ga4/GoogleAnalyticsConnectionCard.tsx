@@ -133,6 +133,8 @@ export function GoogleAnalyticsConnectionCard({
             ? undefined
             : selfHostedNeedsSetup
               ? "setup_required"
+              : connection?.reconnectRequired
+                ? "reconnect_required"
               : connected
                 ? "connected"
                 : "disconnected"

@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, or } from "drizzle-orm";
+import { and, count, eq, isNull, notExists, or } from "drizzle-orm";
 import { db } from "@/db";
 import { runBatch } from "@/db/runBatch";
 import { account, ga4Connections, gscConnections } from "@/db/schema";
@@ -48,12 +48,22 @@ async function getRemovalImpact(input: AccountInput) {
 
 async function remove(input: AccountInput) {
   const { connections, grant, usage } = scope(input);
-  // Atomic on D1 and Postgres: never leave a partial account removal.
-  // Both deletes are scoped to the authenticated owner, including on retries
-  // after this Google identity has been linked to a different OpenSEO user.
+  // Atomic on D1 and Postgres: never leave a partial account removal. The
+  // grant delete is guarded by NOT EXISTS in the same statement so concurrent
+  // reconnects cannot lose a newly reattached token.
   await runBatch((tx) => [
     tx.delete(connections).where(usage),
-    tx.delete(account).where(grant),
+    tx.delete(account).where(
+      and(
+        grant,
+        notExists(
+          db
+            .select({ id: connections.id })
+            .from(connections)
+            .where(usage),
+        ),
+      ),
+    ),
   ]);
 }
 

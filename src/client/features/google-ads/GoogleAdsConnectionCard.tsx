@@ -118,6 +118,8 @@ export function GoogleAdsConnectionCard({ projectId }: { projectId: string }) {
           ? undefined
           : selfHostedNeedsSetup
             ? "setup_required"
+            : connection?.reconnectRequired
+              ? "reconnect_required"
             : connected
               ? "connected"
               : "disconnected"

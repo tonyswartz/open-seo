@@ -4,6 +4,10 @@ import { waitUntil } from "cloudflare:workers";
 import { z } from "zod";
 import { GoogleAdsService } from "@/server/features/google-ads/services/GoogleAdsService";
 import { LocalServicesReportingService } from "@/server/features/google-ads/services/LocalServicesReportingService";
+import {
+  getStoredRefreshHealth,
+  probeAndRecordRefreshHealth,
+} from "@/server/features/google/services/GoogleIntegrationTokenHealthService";
 import { hasSelfHostedGoogleOAuthConfig } from "@/server/features/google/oauth-config";
 import {
   createSelfHostedGoogleAuthorizationUrl,
@@ -53,8 +57,23 @@ export const getGoogleAdsConnection = createServerFn({ method: "POST" })
         hasSelfHostedGoogleOAuthConfig(),
         hasDeveloperToken(),
       ]);
+    const health = connection
+      ? await probeAndRecordRefreshHealth({
+          integration: "google_ads",
+          providerId: GOOGLE_ADS_INTEGRATION.providerId,
+          projectId: context.projectId,
+          connectedByUserId: connection.connectedByUserId,
+          accountId: connection.googleAdsAccountId,
+        })
+      : null;
+    const storedHealth = await getStoredRefreshHealth({
+      projectId: context.projectId,
+      integration: "google_ads",
+    });
+    const reconnectRequired = Boolean(connection && health && !health.healthy);
     return {
-      connected: Boolean(connection),
+      connected: Boolean(connection) && !reconnectRequired,
+      reconnectRequired,
       currentUserHasGrant,
       googleOAuthConfigured: hosted || oauthConfigured,
       developerTokenConfigured: adsToken,
@@ -63,6 +82,9 @@ export const getGoogleAdsConnection = createServerFn({ method: "POST" })
       currencyCode: connection?.currencyCode ?? null,
       connectedByEmail: connection?.connectedAccountEmail ?? null,
       connectedAt: connection?.createdAt ?? null,
+      lastSuccessfulRefreshAt: storedHealth?.lastSuccessfulRefreshAt ?? null,
+      lastRefreshErrorAt: storedHealth?.lastRefreshErrorAt ?? null,
+      lastRefreshErrorCode: storedHealth?.lastRefreshErrorCode ?? null,
     };
   });
 

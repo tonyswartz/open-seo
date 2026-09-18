@@ -29,6 +29,7 @@ import { handleGdprStorageErasure } from "@/server/gdpr/storage-erasure";
 import { GDPR_STORAGE_ERASURE_PATH } from "@/shared/gdpr-erasure";
 import { handleSeoHistoryRequest } from "@/server/seo-history/http";
 import { SEO_HISTORY_HTTP_PATH } from "@/shared/seo-history";
+import { runDailyGoogleIntegrationHealthProbe } from "@/server/features/google/services/dailyGoogleIntegrationHealthProbe";
 
 const appFetch = createStartHandler(defaultStreamHandler);
 const openSeoOAuthProvider = createOpenSeoOAuthProvider(appFetch);
@@ -189,6 +190,11 @@ export default {
           await sweepDubReferredOrganizations();
         } catch (err) {
           console.error("[cron] Dub referral sale sweep failed:", err);
+        }
+        try {
+          await runDailyGoogleIntegrationHealthProbe();
+        } catch (err) {
+          console.error("[cron] Google integration token health probe failed:", err);
         }
       }
       return;

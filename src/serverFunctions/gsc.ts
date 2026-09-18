@@ -3,6 +3,10 @@ import { getRequest } from "@tanstack/react-start/server";
 import { waitUntil } from "cloudflare:workers";
 import { z } from "zod";
 import { GscService } from "@/server/features/gsc/services/GscService";
+import {
+  getStoredRefreshHealth,
+  probeAndRecordRefreshHealth,
+} from "@/server/features/google/services/GoogleIntegrationTokenHealthService";
 import { hasSelfHostedGoogleOAuthConfig } from "@/server/features/google/oauth-config";
 import {
   createSelfHostedGoogleAuthorizationUrl,
@@ -47,14 +51,32 @@ export const getGscConnection = createServerFn({ method: "POST" })
         isHostedServerAuthMode(),
         hasSelfHostedGoogleOAuthConfig(),
       ]);
+    const health = connection
+      ? await probeAndRecordRefreshHealth({
+          integration: "gsc",
+          providerId: GSC_INTEGRATION.providerId,
+          projectId: context.projectId,
+          connectedByUserId: connection.connectedByUserId,
+          accountId: connection.gscAccountId ?? null,
+        })
+      : null;
+    const storedHealth = await getStoredRefreshHealth({
+      projectId: context.projectId,
+      integration: "gsc",
+    });
+    const reconnectRequired = Boolean(connection && health && !health.healthy);
     return {
-      connected: Boolean(connection),
+      connected: Boolean(connection) && !reconnectRequired,
+      reconnectRequired,
       canManage: hasOrgPermission(context.role, { integration: ["manage"] }),
       currentUserHasGrant,
       googleOAuthConfigured: hosted || gscConfigured,
       siteUrl: connection?.siteUrl ?? null,
       connectedByEmail: connection?.connectedAccountEmail ?? null,
       connectedAt: connection?.createdAt ?? null,
+      lastSuccessfulRefreshAt: storedHealth?.lastSuccessfulRefreshAt ?? null,
+      lastRefreshErrorAt: storedHealth?.lastRefreshErrorAt ?? null,
+      lastRefreshErrorCode: storedHealth?.lastRefreshErrorCode ?? null,
     };
   });
 
