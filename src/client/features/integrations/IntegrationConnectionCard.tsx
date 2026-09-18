@@ -6,6 +6,20 @@ type IntegrationConnectionStatus =
   | "reconnect_required"
   | "setup_required";
 
+export function deriveGoogleIntegrationStatus(input: {
+  loading: boolean;
+  unavailable: boolean;
+  setupRequired: boolean;
+  reconnectRequired: boolean;
+  connected: boolean;
+}): IntegrationConnectionStatus | undefined {
+  if (input.loading || input.unavailable) return undefined;
+  if (input.setupRequired) return "setup_required";
+  if (input.reconnectRequired) return "reconnect_required";
+  if (input.connected) return "connected";
+  return "disconnected";
+}
+
 /** Shared shell for first-party connection cards such as GSC and GA4. */
 export function IntegrationConnectionCard({
   title,

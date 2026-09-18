@@ -11,7 +11,10 @@ import {
 import { GoogleProjectEmptyState } from "@/client/features/integrations/GoogleProjectEmptyState";
 import { GoogleLinkErrorAlert } from "@/client/features/integrations/GoogleLinkErrorAlert";
 import { GoogleOAuthSetupWarning } from "@/client/features/integrations/GoogleOAuthSetupWarning";
-import { IntegrationConnectionCard } from "@/client/features/integrations/IntegrationConnectionCard";
+import {
+  IntegrationConnectionCard,
+  deriveGoogleIntegrationStatus,
+} from "@/client/features/integrations/IntegrationConnectionCard";
 import { GoogleAnalyticsLogo } from "@/client/features/integrations/GoogleProductLogos";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
@@ -128,17 +131,13 @@ export function GoogleAnalyticsConnectionCard({
       <IntegrationConnectionCard
         title="Google Analytics"
         icon={<GoogleAnalyticsLogo className="size-5" />}
-        status={
-          connectionQuery.isPending || connectionUnavailable
-            ? undefined
-            : selfHostedNeedsSetup
-              ? "setup_required"
-              : connection?.reconnectRequired
-                ? "reconnect_required"
-                : connected
-                  ? "connected"
-                  : "disconnected"
-        }
+        status={deriveGoogleIntegrationStatus({
+          loading: connectionQuery.isPending,
+          unavailable: connectionUnavailable,
+          setupRequired: selfHostedNeedsSetup,
+          reconnectRequired: Boolean(connection?.reconnectRequired),
+          connected,
+        })}
       >
         <GoogleLinkErrorAlert provider="ga4" className="mb-4" />
         {connectionQuery.isPending ? (
