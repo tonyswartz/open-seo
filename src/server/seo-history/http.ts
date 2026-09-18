@@ -87,7 +87,9 @@ export async function handleSeoHistoryRequest(
       const startDate = url.searchParams.get("startDate")?.trim() || undefined;
       const endDate = url.searchParams.get("endDate")?.trim() || undefined;
       if (Boolean(startDate) !== Boolean(endDate)) {
-        return json(400, { error: "Provide both startDate and endDate, or neither." });
+        return json(400, {
+          error: "Provide both startDate and endDate, or neither.",
+        });
       }
       const result = await LocalServicesReportingService.listLeads({
         projectId,

@@ -20,11 +20,14 @@ vi.mock("@/server/features/seo-history/services/SeoHistoryService", () => ({
     list: mocks.list,
   },
 }));
-vi.mock("@/server/features/google-ads/services/LocalServicesReportingService", () => ({
-  LocalServicesReportingService: {
-    listLeads: mocks.listLeads,
-  },
-}));
+vi.mock(
+  "@/server/features/google-ads/services/LocalServicesReportingService",
+  () => ({
+    LocalServicesReportingService: {
+      listLeads: mocks.listLeads,
+    },
+  }),
+);
 
 import { handleSeoHistoryRequest } from "./http";
 
