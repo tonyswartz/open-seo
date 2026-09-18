@@ -9,6 +9,16 @@ import {
   errorLogDetails,
   isAccessPendingReason,
 } from "@/server/lib/googleAdsErrors";
+import {
+  GOOGLE_ADS_OAUTH_PROVIDER_ID,
+  GOOGLE_ADS_OAUTH_SCOPES,
+} from "@/shared/google-ads";
+import {
+  extractTokenFailureDetails,
+  logReconnectFailure,
+  recordRefreshFailure,
+  recordRefreshSuccess,
+} from "@/server/features/google/services/GoogleIntegrationTokenHealthService";
 import { GoogleAdsConnectionRepository } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -283,6 +293,13 @@ function mapGoogleAdsError(
   throw error;
 }
 
+function isReconnectFailure(error: unknown): boolean {
+  return (
+    error instanceof GoogleAdsTokenError ||
+    (error instanceof GoogleAdsApiError && error.status === 401)
+  );
+}
+
 function micros(value: string | undefined): number {
   const parsed = Number(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
@@ -534,8 +551,14 @@ async function getPerformance(input: {
   startDate?: string;
   endDate?: string;
 }): Promise<LocalServicesPerformance> {
+  let healthContext: { connectedByUserId: string; accountId: string } | null =
+    null;
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
+    healthContext = {
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    };
     const { startDate, endDate } = resolveRange(connection.timeZone, input);
     const pacingEnd = todayInAccountZone(connection.timeZone);
     const [campaignRows, spendMicros, last7DaysSpendMicros, leads] =
@@ -611,7 +634,7 @@ async function getPerformance(input: {
       truncated,
     };
 
-    return {
+    const performance = {
       currencyCode: connection.currencyCode,
       customerId: connection.customerId,
       dateRange: { startDate, endDate },
@@ -631,7 +654,34 @@ async function getPerformance(input: {
             : null,
       },
     };
+    await recordRefreshSuccess({
+      projectId: input.projectId,
+      integration: "google_ads",
+      providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    });
+    return performance;
   } catch (error) {
+    if (healthContext && isReconnectFailure(error)) {
+      logReconnectFailure({
+        integration: "google_ads",
+        projectId: input.projectId,
+        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+        accountId: healthContext.accountId,
+        scopeSet: [...GOOGLE_ADS_OAUTH_SCOPES],
+        error,
+      });
+      const details = extractTokenFailureDetails(error);
+      await recordRefreshFailure({
+        projectId: input.projectId,
+        integration: "google_ads",
+        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+        connectedByUserId: healthContext.connectedByUserId,
+        accountId: healthContext.accountId,
+        ...details,
+      });
+    }
     throw mapGoogleAdsError(error, {
       report: "performance",
       projectId: input.projectId,
@@ -650,8 +700,14 @@ async function listLeads(input: {
   dateRange: { startDate: string; endDate: string };
 }> {
   const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 1_000);
+  let healthContext: { connectedByUserId: string; accountId: string } | null =
+    null;
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
+    healthContext = {
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    };
     const dateRange = resolveRange(connection.timeZone, input);
     const leads = await fetchLeads(
       client,
@@ -663,7 +719,7 @@ async function listLeads(input: {
       leads.length > 0
         ? await fetchConversationDurations(client, connection, dateRange)
         : new Map<string, number>();
-    return {
+    const result = {
       leads: leads.map((lead) => ({
         ...lead,
         conversationDurationMillis: durations.get(lead.id) ?? null,
@@ -671,7 +727,34 @@ async function listLeads(input: {
       currencyCode: connection.currencyCode,
       dateRange,
     };
+    await recordRefreshSuccess({
+      projectId: input.projectId,
+      integration: "google_ads",
+      providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    });
+    return result;
   } catch (error) {
+    if (healthContext && isReconnectFailure(error)) {
+      logReconnectFailure({
+        integration: "google_ads",
+        projectId: input.projectId,
+        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+        accountId: healthContext.accountId,
+        scopeSet: [...GOOGLE_ADS_OAUTH_SCOPES],
+        error,
+      });
+      const details = extractTokenFailureDetails(error);
+      await recordRefreshFailure({
+        projectId: input.projectId,
+        integration: "google_ads",
+        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+        connectedByUserId: healthContext.connectedByUserId,
+        accountId: healthContext.accountId,
+        ...details,
+      });
+    }
     throw mapGoogleAdsError(error, {
       report: "leads",
       projectId: input.projectId,
@@ -911,8 +994,14 @@ async function provideLeadFeedback(
 ): Promise<LeadFeedbackResult> {
   const leadId = assertLeadId(input.leadId);
   const survey = validateSurvey(input);
+  let healthContext: { connectedByUserId: string; accountId: string } | null =
+    null;
   try {
     const { connection, client } = await getConnectedClient(input.projectId);
+    healthContext = {
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    };
     const state = await fetchLeadFeedbackState(client, connection, leadId);
     if (!state.found) {
       throw new GoogleAdsReportError(
@@ -973,14 +1062,41 @@ async function provideLeadFeedback(
       });
     }
 
-    return {
+    const result = {
       leadId,
       creditIssuanceDecision,
       leadFeedbackSubmitted,
       creditState,
       charged: state.charged,
     };
+    await recordRefreshSuccess({
+      projectId: input.projectId,
+      integration: "google_ads",
+      providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.googleAdsAccountId,
+    });
+    return result;
   } catch (error) {
+    if (healthContext && isReconnectFailure(error)) {
+      logReconnectFailure({
+        integration: "google_ads",
+        projectId: input.projectId,
+        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+        accountId: healthContext.accountId,
+        scopeSet: [...GOOGLE_ADS_OAUTH_SCOPES],
+        error,
+      });
+      const details = extractTokenFailureDetails(error);
+      await recordRefreshFailure({
+        projectId: input.projectId,
+        integration: "google_ads",
+        providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+        connectedByUserId: healthContext.connectedByUserId,
+        accountId: healthContext.accountId,
+        ...details,
+      });
+    }
     throw mapGoogleAdsError(error, {
       report: "feedback",
       projectId: input.projectId,

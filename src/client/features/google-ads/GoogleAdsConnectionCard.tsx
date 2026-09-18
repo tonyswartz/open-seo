@@ -118,9 +118,11 @@ export function GoogleAdsConnectionCard({ projectId }: { projectId: string }) {
           ? undefined
           : selfHostedNeedsSetup
             ? "setup_required"
-            : connected
-              ? "connected"
-              : "disconnected"
+            : connection?.reconnectRequired
+              ? "reconnect_required"
+              : connected
+                ? "connected"
+                : "disconnected"
       }
     >
       <GoogleLinkErrorAlert provider="gads" className="mb-4" />

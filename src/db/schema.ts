@@ -8,6 +8,7 @@ import * as sqliteAuth from "./better-auth-schema";
 import * as sqliteBilling from "./billing.schema";
 import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteGoogleAds from "./google-ads.schema";
+import * as sqliteGoogleIntegrationHealth from "./google-integration-health.schema";
 import * as sqliteGsc from "./gsc.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
 import * as pgApp from "./pg/app.schema";
@@ -19,6 +20,7 @@ import * as pgAuth from "./pg/better-auth-schema";
 import * as pgBilling from "./pg/billing.schema";
 import * as pgGa4 from "./pg/ga4.schema";
 import * as pgGoogleAds from "./pg/google-ads.schema";
+import * as pgGoogleIntegrationHealth from "./pg/google-integration-health.schema";
 import * as pgGsc from "./pg/gsc.schema";
 import * as pgTelemetry from "./pg/telemetry.schema";
 
@@ -41,6 +43,7 @@ type AppSchema = typeof sqliteApp &
   typeof sqliteBilling &
   typeof sqliteGa4 &
   typeof sqliteGoogleAds &
+  typeof sqliteGoogleIntegrationHealth &
   typeof sqliteGsc &
   typeof sqliteTelemetry;
 
@@ -56,6 +59,7 @@ const runtimeSchema =
         ...pgBilling,
         ...pgGa4,
         ...pgGoogleAds,
+        ...pgGoogleIntegrationHealth,
         ...pgGsc,
         ...pgTelemetry,
       }
@@ -69,6 +73,7 @@ const runtimeSchema =
         ...sqliteBilling,
         ...sqliteGa4,
         ...sqliteGoogleAds,
+        ...sqliteGoogleIntegrationHealth,
         ...sqliteGsc,
         ...sqliteTelemetry,
       };
@@ -112,6 +117,7 @@ export const {
   billingCustomerStatus,
   ga4Connections,
   googleAdsConnections,
+  googleIntegrationHealth,
   gscConnections,
   telemetryState,
 } = schema;

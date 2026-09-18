@@ -8,6 +8,13 @@ import {
   Ga4TokenError,
 } from "@/server/lib/ga4Errors";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
+import { GA4_OAUTH_PROVIDER_ID, GA4_OAUTH_SCOPES } from "@/shared/ga4";
+import {
+  extractTokenFailureDetails,
+  logReconnectFailure,
+  recordRefreshFailure,
+  recordRefreshSuccess,
+} from "@/server/features/google/services/GoogleIntegrationTokenHealthService";
 import {
   buildGa4ReportRequest,
   getGa4ReportConfiguration,
@@ -328,7 +335,7 @@ async function runReport(input: Ga4ReportInput, opts: { now?: Date } = {}) {
       input,
       dateRange.resolvedDateRange,
     );
-    return {
+    const result = {
       status: "ok",
       source: {
         provider: "google_analytics",
@@ -363,7 +370,39 @@ async function runReport(input: Ga4ReportInput, opts: { now?: Date } = {}) {
       ...enhancements,
       comparison,
     };
+    await recordRefreshSuccess({
+      projectId: input.projectId,
+      integration: "ga4",
+      providerId: GA4_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.ga4AccountId,
+    });
+    return result;
   } catch (error) {
+    if (
+      error instanceof Ga4TokenError ||
+      ((error instanceof Ga4DataApiError ||
+        error instanceof Ga4AdminApiError) &&
+        error.status === 401)
+    ) {
+      logReconnectFailure({
+        integration: "ga4",
+        projectId: input.projectId,
+        providerId: GA4_OAUTH_PROVIDER_ID,
+        accountId: connection.ga4AccountId,
+        scopeSet: [...GA4_OAUTH_SCOPES],
+        error,
+      });
+      const details = extractTokenFailureDetails(error);
+      await recordRefreshFailure({
+        projectId: input.projectId,
+        integration: "ga4",
+        providerId: GA4_OAUTH_PROVIDER_ID,
+        connectedByUserId: connection.connectedByUserId,
+        accountId: connection.ga4AccountId,
+        ...details,
+      });
+    }
     mapGa4ReportError(error);
   }
 }

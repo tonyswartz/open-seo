@@ -155,9 +155,11 @@ export function SearchConsoleConnectionCard({
           ? undefined
           : selfHostedNeedsSetup
             ? "setup_required"
-            : connected
-              ? "connected"
-              : "disconnected"
+            : connection?.reconnectRequired
+              ? "reconnect_required"
+              : connected
+                ? "connected"
+                : "disconnected"
       }
     >
       <GoogleLinkErrorAlert provider="gsc" className="mb-4" />

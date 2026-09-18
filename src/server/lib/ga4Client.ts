@@ -167,7 +167,22 @@ function memoizedGa4AccessToken(opts: {
   ga4AccountId: string;
 }) {
   let accessTokenPromise: Promise<string> | undefined;
-  return () => (accessTokenPromise ??= getGa4AccessToken(opts));
+  let blockedUntil = 0;
+  return () => {
+    const now = Date.now();
+    if (now < blockedUntil) {
+      return Promise.reject(
+        new Ga4TokenError("Google Analytics token refresh is cooling down."),
+      );
+    }
+    accessTokenPromise ??= getGa4AccessToken(opts).catch((error: unknown) => {
+      accessTokenPromise = undefined;
+      // Keep refresh retries fast, but avoid immediate same-tick stampedes.
+      blockedUntil = Date.now() + 500 + Math.floor(Math.random() * 750);
+      throw error;
+    });
+    return accessTokenPromise;
+  };
 }
 
 /** Read-only Admin API client used only for account/property discovery. */

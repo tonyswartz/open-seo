@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { account } from "@/db/schema";
 import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
+import { GSC_OAUTH_SCOPES } from "@/shared/gsc";
 import { AppError } from "@/server/lib/errors";
 import {
   createGscClient,
@@ -26,6 +27,12 @@ import type {
   GscSearchAnalyticsRequest,
   GscSearchAnalyticsRow,
 } from "@/server/lib/gscClient";
+import {
+  extractTokenFailureDetails,
+  logReconnectFailure,
+  recordRefreshFailure,
+  recordRefreshSuccess,
+} from "@/server/features/google/services/GoogleIntegrationTokenHealthService";
 
 const SITE_UNVERIFIED_PERMISSION = "siteUnverifiedUser";
 
@@ -207,13 +214,43 @@ async function getPerformance(
     userId: connection.connectedByUserId,
     gscAccountId: connection.gscAccountId ?? undefined,
   });
-  const rows = await client.querySearchAnalytics(connection.siteUrl, request);
-  return {
-    siteUrl: connection.siteUrl,
-    connectedBy: connection.connectedAccountEmail,
-    request,
-    rows,
-  };
+  try {
+    const rows = await client.querySearchAnalytics(connection.siteUrl, request);
+    await recordRefreshSuccess({
+      projectId: input.projectId,
+      integration: "gsc",
+      providerId: GSC_OAUTH_PROVIDER_ID,
+      connectedByUserId: connection.connectedByUserId,
+      accountId: connection.gscAccountId ?? null,
+    });
+    return {
+      siteUrl: connection.siteUrl,
+      connectedBy: connection.connectedAccountEmail,
+      request,
+      rows,
+    };
+  } catch (error) {
+    if (isExpectedGrantFailure(error)) {
+      logReconnectFailure({
+        integration: "gsc",
+        projectId: input.projectId,
+        providerId: GSC_OAUTH_PROVIDER_ID,
+        accountId: connection.gscAccountId ?? null,
+        scopeSet: [...GSC_OAUTH_SCOPES],
+        error,
+      });
+      const details = extractTokenFailureDetails(error);
+      await recordRefreshFailure({
+        projectId: input.projectId,
+        integration: "gsc",
+        providerId: GSC_OAUTH_PROVIDER_ID,
+        connectedByUserId: connection.connectedByUserId,
+        accountId: connection.gscAccountId ?? null,
+        ...details,
+      });
+    }
+    throw error;
+  }
 }
 
 type GscUrlInspection = {
