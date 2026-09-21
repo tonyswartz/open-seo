@@ -785,13 +785,13 @@ export const getRankedKeywordsTool = {
     description:
       "Returns market-specific keyword, URL, rank, search volume, CPC, intent, and traffic rows for a domain or page. Accepts country-level DataForSEO Labs location/language codes. Use this for strategy evidence; use get_domain_overview for aggregate domain footprint. Charges credits.",
     inputSchema: getRankedKeywordsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       keywords: z.array(looseObjectOutputSchema),
       totalCount: z.number().nullable(),
       target: z.string().optional(),
       scope: researchScopeSchema.optional(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -867,10 +867,10 @@ export const searchLocalBusinessesTool = {
     description:
       "Searches local business listings near a coordinate, with optional rating, review-count, and claimed-status filters. Use this to find local business candidates, nearby competitors, or unclaimed listings; it does not run Maps rank checks or Q&A. Returns a compact row per business (identity, contact, rating, claim status); use get_business_profile for one business's full profile. Charges credits.",
     inputSchema: searchLocalBusinessesInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       businesses: z.array(looseObjectOutputSchema),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -914,10 +914,10 @@ export const getLocalSerpResultsTool = {
     description:
       "Fetches one Google Maps or Local Finder SERP near a coordinate. Returns trimmed provider rows (identity, rank, rating, categories, hours) with rank fields intact; callers decide how to match a target business. Charges credits.",
     inputSchema: getLocalSerpResultsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       results: z.array(looseObjectOutputSchema),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -960,10 +960,10 @@ export const getGoogleBusinessQuestionsTool = {
     description:
       "Fetches Google Business Profile questions and answers for one business (by businessName, cid, or placeId) near a coordinate. Run this only when Q&A evidence is needed. Charges credits.",
     inputSchema: getGoogleBusinessQuestionsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       questions: z.array(looseObjectOutputSchema),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -1003,10 +1003,10 @@ export const findSerpCompetitorsTool = {
     description:
       "Compares domains competing in Google results for a supplied keyword set in a country-level DataForSEO Labs market. Accepts location/language codes; not radius-based local SEO. Charges credits.",
     inputSchema: findSerpCompetitorsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       competitors: z.array(looseObjectOutputSchema),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -1062,10 +1062,10 @@ export const getKeywordMetricsTool = {
     description:
       "Hydrate up to 700 known keywords with search volume, keyword difficulty (KD), search intent, CPC, competition, and monthly trends in a single call. Use it to score candidate or known keywords — including Search Console striking-distance queries — by real demand and ranking difficulty. For countries served from Google Ads data (e.g. Iceland), KD and intent are null. Charges credits.",
     inputSchema: getKeywordMetricsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       keywords: z.array(looseObjectOutputSchema),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,

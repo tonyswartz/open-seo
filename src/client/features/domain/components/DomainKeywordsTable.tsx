@@ -115,7 +115,7 @@ function DomainKeywordsTableComponent({
         header: () => "URL",
         cell: ({ row }) => (
           <ExternalUrlCell
-            value={row.original.relativeUrl ?? row.original.url}
+            value={row.original.url || row.original.relativeUrl}
             label={row.original.relativeUrl ?? row.original.url ?? ""}
             baseDomain={domain}
           />

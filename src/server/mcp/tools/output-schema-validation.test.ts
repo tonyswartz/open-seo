@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Ajv } from "@modelcontextprotocol/client/validators/ajv";
+import { z } from "zod";
 import { AppError } from "@/server/lib/errors";
 import { objectSchema } from "@/server/mcp/output-schemas";
 import * as researchTools from "./dataforseo-research-tools";
 import * as localSeoTools from "./local-seo-tools";
 import { getBacklinksProfileTool } from "./get-backlinks-profile";
+import { getRankTrackerTool } from "./get-rank-tracker";
+import {
+  getProjectContextTool,
+  updateProjectContextTool,
+} from "./project-context";
 import { getSearchConsolePerformanceTool } from "./search-console-tools";
 import { runSiteAuditTool } from "./site-audit-tools";
 import { makeToolContext } from "./tool-test-support";
@@ -178,6 +185,65 @@ describe("MCP output schemas with expected missing fields", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("MCP output compatibility across deployments", () => {
+  // Clients cache the JSON Schema from tools/list. Zod's safeParse alone
+  // misses this regression: it strips unknown fields, while its exported
+  // output schema rejects them unless the object allows additional fields.
+  const validator = new Ajv({ strict: false });
+
+  it.each([getProjectContextTool, updateProjectContextTool])(
+    "$name accepts new context fields while validating known fields",
+    (tool) => {
+      const validate = validator.compile(
+        z.toJSONSchema(objectSchema(tool.config.outputSchema), {
+          target: "draft-7",
+        }),
+      );
+      const context = {
+        sections: [],
+        missingSections: [],
+        customSections: [],
+        competitors: [],
+        keyPages: [],
+        researchLog: [],
+        reportTemplates: [],
+        futureContextField: [],
+      };
+
+      expect(validate(context)).toBe(true);
+      expect(validate({ ...context, sections: "invalid" })).toBe(false);
+      const { sections: _sections, ...missingSections } = context;
+      expect(validate(missingSections)).toBe(false);
+    },
+  );
+
+  it("get_rank_tracker accepts new run fields while validating known fields", () => {
+    const validate = validator.compile(
+      z.toJSONSchema(getRankTrackerTool.config.outputSchema, {
+        target: "draft-7",
+      }),
+    );
+    const run = {
+      id: "run_1",
+      lastCheckedAt: null,
+      completedAt: "2026-09-17T00:00:00.000Z",
+      status: "completed",
+      errorMessage: null,
+      futureRunField: 1,
+    };
+    const detail = { config: {}, results: { rows: [], run } };
+
+    expect(validate(detail)).toBe(true);
+    expect(validate({ configs: [] })).toBe(true);
+    expect(validate({ results: { rows: [], run: null } })).toBe(true);
+    expect(
+      validate({ results: { rows: [], run: { ...run, status: "invalid" } } }),
+    ).toBe(false);
+    const { completedAt: _completedAt, ...incompleteRun } = run;
+    expect(validate({ results: { rows: [], run: incompleteRun } })).toBe(false);
   });
 });
 

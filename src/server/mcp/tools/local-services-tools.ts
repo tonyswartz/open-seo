@@ -124,7 +124,7 @@ export const getLocalServicesPerformanceTool = {
     description:
       "Report on the connected Google Ads account's Local Services Ads (LSA): spend, lead totals (charged/booked/by type), cost per charged lead, campaign budgets, and pacing of the last 7 days' spend against the weekly budget. Money fields are micros (1,000,000 = 1 currency unit). Read-only; uses no credits. LSA data comes from the Google Ads API and requires the Google Ads connection plus approved API access.",
     inputSchema: performanceInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       ok: z.boolean(),
       reason: z.string().optional(),
       connectUrl: z.string().optional(),
@@ -136,7 +136,7 @@ export const getLocalServicesPerformanceTool = {
       spendMicros: z.number().optional(),
       costPerChargedLeadMicros: z.number().nullable().optional(),
       leadTotals: z
-        .object({
+        .looseObject({
           total: z.number(),
           charged: z.number(),
           booked: z.number(),
@@ -147,7 +147,7 @@ export const getLocalServicesPerformanceTool = {
         })
         .optional(),
       pacing: z
-        .object({
+        .looseObject({
           last7DaysSpendMicros: z.number(),
           weeklyBudgetMicros: z.number().nullable(),
           utilization: z.number().nullable(),
@@ -167,7 +167,7 @@ export const getLocalServicesPerformanceTool = {
         )
         .optional(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: true,
       openWorldHint: false,
@@ -339,7 +339,7 @@ export const getLocalServicesLeadsTool = {
     description:
       "List the connected Google Ads account's Local Services Ads leads, newest first: type (call/message/booking), status (e.g. NEW, BOOKED), whether the lead was charged, Google credit_state (CREDITED/PENDING when present), whether feedback was already submitted, phone-call duration in milliseconds, and the consumer's contact details. Does not return call recordings. Lead contents are customer PII — handle accordingly. Read-only; uses no credits.",
     inputSchema: leadsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       ok: z.boolean(),
       reason: z.string().optional(),
       connectUrl: z.string().optional(),
@@ -370,7 +370,7 @@ export const getLocalServicesLeadsTool = {
         )
         .optional(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: true,
       openWorldHint: false,
@@ -473,7 +473,7 @@ export const provideLeadFeedbackTool = {
     description:
       "File Google's one-shot Local Services Ads lead-feedback survey (ProvideLeadFeedback). Live and irreversible: the v25 request has no validate_only, and Google accepts one survey per lead. Refuses when lead_feedback_submitted is already true. Returns creditIssuanceDecision verbatim (SUCCESS_NOT_REACHED_THRESHOLD, SUCCESS_REACHED_THRESHOLD, FAIL_OVER_THRESHOLD, FAIL_NOT_ELIGIBLE). Do not put transcripts or caller details in otherReasonComment; enum-only by default. Uses no OpenSEO credits.",
     inputSchema: feedbackInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       ok: z.boolean(),
       reason: z.string().optional(),
       connectUrl: z.string().optional(),
@@ -484,7 +484,7 @@ export const provideLeadFeedbackTool = {
       creditState: z.string().nullable().optional(),
       charged: z.boolean().optional(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,

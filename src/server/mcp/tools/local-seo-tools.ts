@@ -220,10 +220,10 @@ export const getBusinessProfileTool = {
     description:
       "Reads one Google Business Profile: categories, rating and review count, rating breakdown, address, phone, website, claimed status, opening hours, and photo count. Use it to audit your own profile or to compare a competitor's. Charges credits.",
     inputSchema: getBusinessProfileInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       profile: looseObjectOutputSchema.nullable(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -366,13 +366,13 @@ export const getBusinessReviewsTool = {
     description:
       "Collects Google reviews for a business, with rating, author, text, and whether the owner replied. Use it for review-gap analysis against competitors and to spot unanswered reviews. Usually completes within this call; if the queued job is still running you get status 'processing' plus a taskId — call again with that taskId in 30-60 seconds to collect the result at no extra cost. Charges credits.",
     inputSchema: getBusinessReviewsInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       status: z.enum(["completed", "processing"]),
       taskId: z.string(),
       reviews: z.array(looseObjectOutputSchema).optional(),
       totals: looseObjectOutputSchema.nullable().optional(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -507,12 +507,12 @@ export const getBusinessUpdatesTool = {
     description:
       "Collects the posts (updates, offers, events) published on a Google Business Profile. Use it to check posting activity and recency on your profile or a competitor's. Usually completes within this call; a 'processing' response returns a taskId to call back with in 30-60 seconds at no extra cost. Charges credits.",
     inputSchema: getBusinessUpdatesInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       status: z.enum(["completed", "processing"]),
       taskId: z.string(),
       updates: z.array(looseObjectOutputSchema).optional(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
@@ -615,15 +615,15 @@ export const listBusinessCategoriesTool = {
     description:
       "Lists the Google Business categories DataForSEO recognizes, ranked by how many businesses use them. Use it to find valid category slugs for search_local_businesses (e.g. 'pizza_restaurant'). Uses no credits (the full list is cached for 7 days).",
     inputSchema: listBusinessCategoriesInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       categories: z.array(
-        z.object({
+        z.looseObject({
           category: z.string(),
           businessCount: z.number().nullable(),
         }),
       ),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: true,
       openWorldHint: false,
@@ -872,9 +872,9 @@ export const getLocalRankGridTool = {
     description:
       "Runs one Google Maps search per point of a square grid around a coordinate and reports where the target business ranks at each point — plus each point's result count and #1 business — revealing how far its Maps visibility reaches. Cost scales with the grid: gridSize squared SERP calls (3x3 = 9, the sensible default; 5x5 = 25). Charges credits per grid point.",
     inputSchema: getLocalRankGridInputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       grid: z.array(
-        z.object({
+        z.looseObject({
           row: z.number(),
           col: z.number(),
           latitude: z.number(),
@@ -882,7 +882,7 @@ export const getLocalRankGridTool = {
           rank: z.number().nullable(),
           resultsCount: z.number().optional(),
           topResult: z
-            .object({
+            .looseObject({
               title: z.string().nullable(),
               cid: z.string().nullable(),
             })
@@ -891,7 +891,7 @@ export const getLocalRankGridTool = {
           error: z.boolean().optional(),
         }),
       ),
-      summary: z.object({
+      summary: z.looseObject({
         pointsSearched: z.number(),
         pointsFound: z.number(),
         averageRank: z.number().nullable(),
@@ -899,14 +899,14 @@ export const getLocalRankGridTool = {
         top10Count: z.number(),
       }),
       matchedBusiness: z
-        .object({
+        .looseObject({
           title: z.string().nullable(),
           cid: z.string().nullable(),
           placeId: z.string().nullable(),
         })
         .nullable(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
