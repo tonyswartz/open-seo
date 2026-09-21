@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- fork delete_rank_tracker + SEO-history hook merged with upstream rank-check validation */
 import { env } from "cloudflare:workers";
 import {
   customerHasPaidPlan,
