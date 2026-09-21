@@ -27,6 +27,7 @@ import {
 } from "@/server/mcp/tools/seo-history-tools";
 import { removeRankTrackingKeywordsTool } from "@/server/mcp/tools/remove-rank-tracking-keywords";
 import { runRankTrackerTool } from "@/server/mcp/tools/run-rank-tracker";
+import { searchSerpLocationsTool } from "@/server/mcp/tools/search-serp-locations";
 import { getSerpResultsTool } from "@/server/mcp/tools/get-serp-results";
 import {
   getGoogleAnalyticsAudienceBreakdownTool,
@@ -47,6 +48,7 @@ import {
   updateProjectContextTool,
 } from "@/server/mcp/tools/project-context";
 import { listSavedKeywordsTool } from "@/server/mcp/tools/list-saved-keywords";
+import { removeSavedKeywordsTool } from "@/server/mcp/tools/remove-saved-keywords";
 import {
   findSerpCompetitorsTool,
   getGoogleBusinessQuestionsTool,
@@ -62,6 +64,17 @@ import {
   getLocalRankGridTool,
   listBusinessCategoriesTool,
 } from "@/server/mcp/tools/local-seo-tools";
+import {
+  deleteReportTool,
+  getReportTool,
+  listReportsTool,
+  saveReportTool,
+} from "@/server/mcp/tools/report-tools";
+import {
+  deleteReportTemplateTool,
+  listReportTemplatesTool,
+  saveReportTemplateTool,
+} from "@/server/mcp/tools/report-template-tools";
 import { researchKeywordsTool } from "@/server/mcp/tools/research-keywords";
 import { saveKeywordsTool } from "@/server/mcp/tools/save-keywords";
 import {
@@ -79,6 +92,10 @@ import {
   getAuditStatusTool,
   runSiteAuditTool,
 } from "@/server/mcp/tools/site-audit-tools";
+import {
+  deleteSiteAuditTool,
+  listSiteAuditsTool,
+} from "@/server/mcp/tools/site-audit-cleanup-tools";
 import { whoamiTool } from "@/server/mcp/tools/whoami";
 
 type ToolSchema = z.ZodType | z.ZodRawShape;
@@ -112,6 +129,9 @@ function registerOpenSeoTool<Input extends ToolSchema>(
   tool: OpenSeoToolDefinition<Input>,
   authProps: McpProps,
 ) {
+  // Output objects must allow added fields, including nested objects. The
+  // tools/list contract test checks every registered tool for cached-client
+  // compatibility; input schemas keep their existing validation rules.
   const outputSchema = objectSchema(tool.config.outputSchema);
   const handler = instrumentMcpToolHandler(
     tool.name,
@@ -174,6 +194,7 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
   register(getProjectContextTool);
   register(updateProjectContextTool);
   register(listSavedKeywordsTool);
+  register(removeSavedKeywordsTool);
   register(researchKeywordsTool);
   register(saveKeywordsTool);
   register(getDomainOverviewTool);
@@ -181,6 +202,7 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
   register(getBacklinksOverviewTool);
   register(getBacklinksProfileTool);
   register(getSerpResultsTool);
+  register(searchSerpLocationsTool);
   register(createRankTrackerTool);
   register(getRankTrackerTool);
   register(getRankTrackerHistoryTool);
@@ -218,9 +240,18 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
   register(getGoogleAnalyticsSiteSearchTool);
   register(getGoogleAnalyticsAudienceBreakdownTool);
   register(runSiteAuditTool);
+  register(listSiteAuditsTool);
+  register(deleteSiteAuditTool);
   register(getAuditStatusTool);
   register(getAuditIssuesTool);
   register(getAuditPagesTool);
+  register(saveReportTool);
+  register(listReportsTool);
+  register(getReportTool);
+  register(deleteReportTool);
+  register(listReportTemplatesTool);
+  register(saveReportTemplateTool);
+  register(deleteReportTemplateTool);
 
   return server;
 }

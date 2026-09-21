@@ -102,20 +102,20 @@ export function PostSignupOnboarding({
               onOtherChange={(sourceOther) => updateAnswers({ sourceOther })}
             />
           ) : step === 3 ? (
-            <SearchConsoleOnboardingStep />
+            <SearchConsoleOnboardingStep
+              onNext={onNext}
+              onBack={onBack}
+              onSkip={onSkip}
+            />
           ) : (
             <AgentSetup
-              initialIntent={answers.mcpSetupIntent}
               onComplete={onFinish}
               onBack={onBack}
               disabled={isSaving}
-              onIntentChange={(mcpSetupIntent) =>
-                updateAnswers({ mcpSetupIntent })
-              }
             />
           )}
 
-          {step < ONBOARDING_LAST_STEP && (
+          {step < 3 && (
             <div className="mt-8 flex items-center justify-between gap-3">
               {step > 0 ? (
                 <button

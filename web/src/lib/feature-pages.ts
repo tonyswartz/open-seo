@@ -100,6 +100,12 @@ export const featurePages = {
       "DataForSEO-backed metrics without locking the research process into a black box.",
       "MCP access so AI agents can research and save keywords for you.",
     ],
+    featuredLink: {
+      title: "Free competitor analysis tool",
+      description:
+        "Pull a competitor's top organic keywords and the terms they rank for that you don't. No signup required.",
+      href: "/competitor-analysis",
+    },
     related: [
       { label: "Keyword Clustering", href: "/docs/skills/keyword-clustering" },
       {
@@ -210,6 +216,12 @@ export const featurePages = {
       "Open-source implementation for teams that want to inspect or extend the audit flow.",
       "Simple reports that expose page-level signals and optional Lighthouse findings instead of relying only on a generic score.",
     ],
+    featuredLink: {
+      title: "Free SERP simulator",
+      description:
+        "Preview how a title and meta description render on Google, with pixel widths. No signup required.",
+      href: "/serp-simulator",
+    },
     related: [
       { label: "Domain Overview", href: "/features/domain-overview" },
       { label: "Backlinks", href: "/features/backlink-checker" },
@@ -312,6 +324,35 @@ export const featurePages = {
       "Self-host or adapt backlink reporting for your team's workflow.",
       "MCP support lets an AI agent pull backlink context during SEO research.",
     ],
+    guides: {
+      title: "The Link Building Strategy Library",
+      description:
+        "Practitioner strategies for reading a backlink profile and earning links that count. Each guide includes a full walkthrough and a copy-paste MCP prompt.",
+      items: [
+        {
+          label: "The backlink audit",
+          description:
+            "Sort by first seen, bucket the junk, read the rows that matter.",
+          href: "/library/link-building/backlink-audit",
+        },
+        {
+          label: "Referring domains, not backlinks",
+          description:
+            "The count to report, and what the top of the list is made of.",
+          href: "/library/link-building/referring-domains",
+        },
+        {
+          label: "How to get backlinks",
+          description:
+            "Start from the pages that already earn them. Four plays from the podcast.",
+          href: "/library/link-building/how-to-get-backlinks",
+        },
+      ],
+      cta: {
+        label: "Browse all link building strategies",
+        href: "/library/link-building",
+      },
+    },
     featuredLink: {
       title: "Free backlink checker",
       description:
@@ -324,7 +365,6 @@ export const featurePages = {
         href: "/docs/skills/link-prospecting",
       },
       { label: "Domain Overview", href: "/features/domain-overview" },
-      { label: "OpenSEO MCP", href: "/features/mcp" },
     ],
     faqs: [
       {
@@ -394,6 +434,12 @@ export const featurePages = {
       "Built around ranking keywords, estimated traffic, and top pages for practical competitor research.",
       "Open-source and self-hostable for teams that want control over their SEO stack.",
     ],
+    featuredLink: {
+      title: "Free website traffic checker",
+      description:
+        "Estimate any domain's organic traffic, keywords, and top pages. No signup required.",
+      href: "/website-traffic-checker",
+    },
     related: [
       {
         label: "Competitor Analysis",
@@ -510,6 +556,12 @@ export const featurePages = {
       "Optional desktop and mobile tracking helps teams avoid one-dimensional rank reports.",
       "OpenSEO can expose ranking data to AI agents through MCP.",
     ],
+    featuredLink: {
+      title: "Free competitor keyword finder",
+      description:
+        "Find the keywords a competitor ranks for before choosing what to track. No signup required.",
+      href: "/competitor-keyword-finder",
+    },
     related: [
       { label: "Keyword Clustering", href: "/docs/skills/keyword-clustering" },
       {
@@ -535,6 +587,40 @@ export const featurePages = {
           "Start with keywords tied to important pages, active content work, and competitor opportunities discovered in keyword research.",
       },
     ],
+    guides: {
+      title: "The Rank Tracking Strategy Library",
+      description:
+        "Practitioner strategies for tracking what matters and reporting it so it gets read. Each guide includes a full walkthrough and a copy-paste MCP prompt.",
+      items: [
+        {
+          label: "Which keywords to track, and how many",
+          description:
+            "Twenty to fifty terms from Search Console, priced before they go in.",
+          href: "/library/rank-tracking/which-keywords-to-track",
+        },
+        {
+          label: "Is Search Console a rank tracker?",
+          description:
+            "What the free average position hides, and when it is enough.",
+          href: "/library/rank-tracking/search-console-vs-rank-tracker",
+        },
+        {
+          label: "Local rank tracking",
+          description: "Why a local business needs a grid before a tracker.",
+          href: "/library/rank-tracking/local-rank-tracking",
+        },
+        {
+          label: "The keyword ranking report your CEO will read",
+          description:
+            "Lead with the business number and use rankings to explain it.",
+          href: "/library/rank-tracking/keyword-ranking-report",
+        },
+      ],
+      cta: {
+        label: "Browse all rank tracking strategies",
+        href: "/library/rank-tracking",
+      },
+    },
   },
   savedKeywords: {
     slug: FEATURE_PAGE_SLUGS.savedKeywords,

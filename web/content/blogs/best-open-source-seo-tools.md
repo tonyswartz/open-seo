@@ -67,6 +67,10 @@ These have fewer stars, or fill a narrower niche, than the main tools above. We 
 
 One clarification, since it shows up on other lists: seojuice.com is not open source. They publish open source SDKs for their APIs, but the core product is closed.
 
+## Free tools from OpenSEO
+
+If you only need one answer and do not want to install anything, we run a set of [free SEO tools](/tools) on the site: a [free competitor keyword finder](/competitor-keyword-finder), a [free keyword generator](/keyword-generator), a [free backlink checker](/backlink-checker), a [free website traffic checker](/website-traffic-checker), and a [free SEO competitor analysis tool](/competitor-analysis). No account, no email.
+
 ## Try OpenSEO, and tell us what we missed
 
 If you want one open source tool that covers most of SEO, start with OpenSEO. Self-host it with Docker or Cloudflare Workers, or use the hosted version at [openseo.so](https://openseo.so) if you would rather not run it yourself.

@@ -67,7 +67,7 @@ export const getSerpResultsTool = {
     description:
       "Fetch live Google organic search results for 1-10 keywords. Use this to inspect who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Returns the top `depth` result rows per keyword (default 20). Charges credits per keyword: ~5 each at the default depth 20, and each additional 10 of depth adds ~2.5. Does not save results to OpenSEO. Per-keyword errors don't fail the batch.",
     inputSchema,
-    outputSchema: {
+    outputSchema: z.looseObject({
       results: z.array(
         z.union([
           z
@@ -98,7 +98,7 @@ export const getSerpResultsTool = {
         ]),
       ),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,

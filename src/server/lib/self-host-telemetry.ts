@@ -112,11 +112,15 @@ let lastCheckedAt: number | null = null;
 // check interval without a DB read. Epoch 0 marks "old install, age unknown".
 let cachedInstalledAt: Date | null = null;
 
-// Only production builds report: this excludes `vite dev`, vitest, and
-// preview deployments (`vite build --mode preview`), whose per-PR databases
-// would otherwise each register as a fresh self-host install.
+// Docker uses the default production mode; deploy:selfhost builds with the
+// selfhost mode to load .env.selfhost. Both report, but dev/test and preview
+// deployments must not register as installs.
 function isNonProductionBuild() {
-  return import.meta.env.MODE !== "production";
+  return (
+    !import.meta.env.PROD ||
+    (import.meta.env.MODE !== "production" &&
+      import.meta.env.MODE !== "selfhost")
+  );
 }
 
 async function telemetryIsDisabled() {
@@ -276,8 +280,13 @@ const productionDependencies: SelfHostTelemetryDependencies = {
 };
 
 export async function maybeSendSelfHostHeartbeat(
+  pathname: string,
   options: SelfHostTelemetryOptions = {},
 ) {
+  // Docker probes this endpoint every 30 seconds. Probes must not create an
+  // install, consume its heartbeat interval, or keep an idle install active.
+  if (pathname === "/api/health" || pathname === "/api/health/") return;
+
   try {
     if (await telemetryIsDisabled()) return;
 

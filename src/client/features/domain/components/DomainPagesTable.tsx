@@ -43,7 +43,7 @@ function DomainPagesTableComponent({
         header: () => "Page",
         cell: ({ row }) => (
           <ExternalUrlCell
-            value={row.original.relativePath ?? row.original.page}
+            value={row.original.page}
             label={row.original.relativePath ?? row.original.page}
             baseDomain={domain}
             className="link link-primary inline-flex items-center gap-1"

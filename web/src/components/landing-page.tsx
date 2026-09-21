@@ -10,6 +10,7 @@ import { NewsletterSignup } from "@/components/newsletter-signup";
 import { ProductHuntLaurel } from "@/components/product-hunt-laurel";
 import { SiteFooter } from "@/components/site-footer";
 import { featurePages } from "@/lib/feature-pages";
+import { freeTools } from "@/lib/free-tools/tool-pages";
 import "./landing-page.css";
 
 const SIGNUP_URL = "https://app.openseo.so/sign-up";
@@ -356,6 +357,14 @@ function DemoVideo() {
   );
 }
 
+// One restrained row on the home page; the hub at /tools has the rest.
+const FREE_TOOL_LINKS = [
+  freeTools["backlink-checker"],
+  freeTools["competitor-keyword-finder"],
+  freeTools["website-traffic-checker"],
+  freeTools["competitor-analysis"],
+];
+
 function ProductSection() {
   return (
     <section className="itc-section itc-section-demo">
@@ -399,6 +408,15 @@ function ProductSection() {
           <a href="/features" className="itc-textlink">
             All features <IconArrowRight size={15} className="itc-arrow" />
           </a>
+        </div>
+
+        <div className="itc-free-tools-row">
+          <p className="itc-body-sm itc-free-tools-label">Try a free tool</p>
+          {FREE_TOOL_LINKS.map((tool) => (
+            <a key={tool.slug} href={tool.path} className="itc-textlink">
+              {tool.name} <IconArrowRight size={15} className="itc-arrow" />
+            </a>
+          ))}
         </div>
       </Container>
     </section>

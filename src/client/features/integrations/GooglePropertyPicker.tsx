@@ -1,5 +1,11 @@
 import { GoogleAccountRemovalDialog } from "@/client/features/integrations/GoogleAccountRemovalDialog";
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Check, ChevronDown, Plus, Search } from "lucide-react";
 
 type Selection = { accountId: string; propertyId: string };
@@ -37,9 +43,11 @@ export function GooglePropertyPicker({
   onSelect,
   onSave,
   saving,
+  saveLabel = "Save property",
   onRetry,
   onReconnect,
   secondaryAction,
+  renderActions,
 }: {
   provider: "gsc" | "ga4";
   readOnly?: boolean;
@@ -51,9 +59,11 @@ export function GooglePropertyPicker({
   onSelect: (selection: Selection | null) => void;
   onSave: () => void;
   saving: boolean;
+  saveLabel?: string;
   onRetry: () => void;
   onReconnect: () => void;
   secondaryAction?: SecondaryAction;
+  renderActions?: (saveButton: ReactNode) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [removing, setRemoving] = useState<Account | null>(null);
@@ -93,6 +103,17 @@ export function GooglePropertyPicker({
     setSearch("");
     trigger.current?.focus();
   };
+  const saveButton = (
+    <button
+      hidden={readOnly}
+      type="button"
+      className="btn btn-primary btn-sm"
+      onClick={onSave}
+      disabled={!canSave || saving}
+    >
+      {saving ? "Saving…" : saveLabel}
+    </button>
+  );
   return (
     <div className="space-y-4">
       {removing ? (
@@ -307,27 +328,23 @@ export function GooglePropertyPicker({
           </div>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-1">
-        <button
-          hidden={readOnly}
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={onSave}
-          disabled={!canSave || saving}
-        >
-          {saving ? "Saving…" : "Save property"}
-        </button>
-        {secondaryAction ? (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={saving || secondaryAction.disabled}
-            onClick={secondaryAction.onClick}
-          >
-            {secondaryAction.label}
-          </button>
-        ) : null}
-      </div>
+      {renderActions ? (
+        renderActions(saveButton)
+      ) : (
+        <div className="flex flex-wrap items-center gap-1">
+          {saveButton}
+          {secondaryAction ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={saving || secondaryAction.disabled}
+              onClick={secondaryAction.onClick}
+            >
+              {secondaryAction.label}
+            </button>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

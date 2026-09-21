@@ -1,21 +1,23 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback, useEffect } from "react";
-import { Brain, Loader2, Plus, Wrench } from "lucide-react";
+import { Suspense, useCallback, useEffect, useRef } from "react";
+import { Brain, Loader2 } from "lucide-react";
 import { createSamSession } from "@/serverFunctions/sam";
 import {
   invalidateSamSessions,
   samSessionsQueryOptions,
 } from "@/client/features/sam/samQueries";
 import { useSamAccess } from "./useSamAccess";
+import { optInToSamBeta, useSamBetaOptIn } from "./samBetaOptIn";
+import { SamBetaGate } from "./SamBetaGate";
 import { SamSetupGate } from "./SamSetupGate";
 import { SamConversation } from "./SamConversation";
 
 /**
  * The SAM route's content: the active conversation, full-width. The chat
  * history list lives in the app sidebar's Chat tab (SamSidebarPanel); this
- * component only auto-selects the most recent session on landing and shows the
- * start-a-chat empty state when the project has none.
+ * component gates on the beta opt-in, then lands the user in the most recent
+ * session, creating one when the project has none.
  */
 export function SamChat({
   projectId,
@@ -25,6 +27,7 @@ export function SamChat({
   activeSessionId: string | undefined;
 }) {
   const navigate = useNavigate();
+  const optedIn = useSamBetaOptIn();
   const access = useSamAccess(projectId);
   const sessionsQuery = useQuery(samSessionsQueryOptions(projectId));
   const sessions = sessionsQuery.data ?? [];
@@ -40,21 +43,47 @@ export function SamChat({
     [navigate, projectId],
   );
 
+  // The ref (not isPending) guards the auto-create below: React can re-run the
+  // effect before the mutation state updates, and it resets on settle so
+  // archiving the last chat starts a fresh one.
+  const creating = useRef(false);
   const createSession = useMutation({
     mutationFn: () => createSamSession({ data: { projectId } }),
     onSuccess: ({ id }) => {
       invalidateSamSessions(projectId);
       goToSession(id);
     },
+    onSettled: () => {
+      creating.current = false;
+    },
   });
 
-  // Default to the most recent session once they load; if none exist, leave the
-  // empty state so the user can start one explicitly.
+  // Landing without a session: open the most recent one, or start a fresh
+  // chat when the project has none.
   const firstSessionId = sessions[0]?.id;
+  const { mutate: createSessionMutate } = createSession;
   useEffect(() => {
-    if (activeSessionId || !firstSessionId) return;
-    goToSession(firstSessionId);
-  }, [activeSessionId, firstSessionId, goToSession]);
+    if (activeSessionId || !optedIn || access.showSetupGate) return;
+    if (firstSessionId) {
+      goToSession(firstSessionId);
+      return;
+    }
+    if (!sessionsQuery.isSuccess || creating.current) return;
+    creating.current = true;
+    createSessionMutate();
+  }, [
+    activeSessionId,
+    optedIn,
+    access.showSetupGate,
+    firstSessionId,
+    sessionsQuery.isSuccess,
+    goToSession,
+    createSessionMutate,
+  ]);
+
+  if (!optedIn) {
+    return <SamBetaGate onContinue={optInToSamBeta} />;
+  }
 
   // SAM cannot answer a turn without OPENROUTER_API_KEY, so surface setup
   // instructions instead of letting a chat fail mid-stream. Only shown once the
@@ -74,53 +103,9 @@ export function SamChat({
     );
   }
 
-  if (activeSessionId) {
-    const activeTitle = sessions.find(
-      (session) => session.id === activeSessionId,
-    )?.title;
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        {/* Session title + the shortest path to inspect or correct the shared
-            memory SAM reads and writes during the conversation. */}
-        <div className="flex items-center justify-between gap-3 border-b border-base-300 px-5 py-3.5">
-          <span className="truncate text-sm font-medium text-base-content/80">
-            {activeTitle ?? "Chat"}
-          </span>
-          <Link
-            to="/p/$projectId/settings/context"
-            params={{ projectId }}
-            className="flex shrink-0 items-center gap-1.5 text-xs text-base-content/60 transition-colors hover:text-base-content"
-          >
-            <Brain className="size-3.5" />
-            Project memory
-          </Link>
-        </div>
-        <div className="flex min-h-0 flex-1">
-          {/* useAgentChat suspends while it fetches the session's history; this
-              boundary keeps that suspension inside the chat panel instead of
-              letting it bubble up and swap out the whole shell — which read as
-              a full page refresh on every session switch. */}
-          <Suspense
-            fallback={
-              <div className="flex flex-1 items-center justify-center">
-                <Loader2 className="size-5 animate-spin text-base-content/40" />
-              </div>
-            }
-          >
-            <SamConversation
-              key={activeSessionId}
-              projectId={projectId}
-              sessionId={activeSessionId}
-            />
-          </Suspense>
-        </div>
-      </div>
-    );
-  }
-
-  if (sessionsQuery.isLoading) {
-    // Sessions are still loading; the auto-select effect will redirect into
-    // the most recent one. Show a loader instead of flashing the empty state.
+  if (!activeSessionId) {
+    // Sessions are loading or a fresh chat is being created; the effect above
+    // redirects into it.
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="size-5 animate-spin text-base-content/40" />
@@ -128,31 +113,45 @@ export function SamChat({
     );
   }
 
+  const activeTitle = sessions.find(
+    (session) => session.id === activeSessionId,
+  )?.title;
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-        <Wrench className="size-6" />
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Session title + the shortest path to inspect or correct the shared
+          memory SAM reads and writes during the conversation. */}
+      <div className="flex items-center justify-between gap-3 border-b border-base-300 px-5 py-3.5">
+        <span className="truncate text-sm font-medium text-base-content/80">
+          {activeTitle ?? "Chat"}
+        </span>
+        <Link
+          to="/p/$projectId/context"
+          params={{ projectId }}
+          className="flex shrink-0 items-center gap-1.5 text-xs text-base-content/60 transition-colors hover:text-base-content"
+        >
+          <Brain className="size-3.5" />
+          Project memory
+        </Link>
       </div>
-      <div className="space-y-1">
-        <p className="text-lg font-medium">What should we work on?</p>
-        <p className="max-w-sm text-sm text-base-content/60">
-          SAM is your in-app SEO agent with access to every OpenSEO research
-          tool. Start a chat to get going.
-        </p>
+      <div className="flex min-h-0 flex-1">
+        {/* useAgentChat suspends while it fetches the session's history; this
+            boundary keeps that suspension inside the chat panel instead of
+            letting it bubble up and swap out the whole shell — which read as
+            a full page refresh on every session switch. */}
+        <Suspense
+          fallback={
+            <div className="flex flex-1 items-center justify-center">
+              <Loader2 className="size-5 animate-spin text-base-content/40" />
+            </div>
+          }
+        >
+          <SamConversation
+            key={activeSessionId}
+            projectId={projectId}
+            sessionId={activeSessionId}
+          />
+        </Suspense>
       </div>
-      <button
-        type="button"
-        className="btn btn-primary btn-sm gap-1"
-        disabled={createSession.isPending}
-        onClick={() => createSession.mutate()}
-      >
-        {createSession.isPending ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Plus className="size-4" />
-        )}
-        New chat
-      </button>
     </div>
   );
 }

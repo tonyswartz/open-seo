@@ -11,6 +11,7 @@
 - Use idiomatic TypeScript. Use Zod to validate untrusted data and narrow runtime values at trust boundaries.
 - Prefer established project helpers and libraries over hand-rolled implementations.
 - Prefer idiomatic TanStack Query, Router, and Form patterns for server state, routing, and submitted forms.
+- Specs under `specs/` are public design records: what a feature does, how it works, the alternatives considered and why they lost. No line numbers, migration mechanics, test plans, incidents, costs, or internal infrastructure details.
 
 ## Testing
 
@@ -23,6 +24,13 @@
 - Fixtures contain only the fields the test asserts on or the types require. Shared shapes get a factory with overrides (see `ga4-test-fixtures.ts`, `tool-test-support.ts`); a fixture longer than its test's assertions is a smell.
 - One test per invariant. Don't re-test Zod or a library, and don't repeat an output-schema round-trip in every happy path.
 - Don't mock ORM builder chains. Test repositories through services or real SQL evaluation; chain mocks break on refactors that change no behavior.
+
+## Documentation audience
+
+- `docs/` and `web/content/docs/` are public, user-facing documentation. Write only material that helps users understand, use, or self-host the product.
+- Do not put internal working notes, content briefs, drafts, asset-sourcing notes, implementation logs, or agent handoffs in those directories.
+- Use `maintainer-docs/` for engineering decisions, development workflows, and maintenance notes that should be shared and versioned. This directory is tracked in Git but is not part of the user-facing documentation site. Create notes only when requested or useful for future maintenance; never include secrets.
+- Keep PR review and validation details in the PR description. Continue using the dedicated papercut log for repository friction.
 
 ## Log papercuts
 

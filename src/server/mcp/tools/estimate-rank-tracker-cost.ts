@@ -44,7 +44,7 @@ export const estimateRankTrackerCostTool = {
         existingKeywordCount: z.number(),
         additionalKeywordCount: z.number(),
         scheduledEstimate: z
-          .object({
+          .looseObject({
             scheduleInterval: z.enum(["daily", "weekly", "monthly"]),
             costUsd: z.number(),
             costCredits: z.number(),

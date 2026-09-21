@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { GooglePropertyPicker } from "@/client/features/integrations/GooglePropertyPicker";
 type SiteOption = {
   siteUrl: string;
@@ -29,6 +30,8 @@ export function SitePicker(props: {
   onSelect: (selection: GscSiteSelection | null) => void;
   onSave: () => void;
   saving: boolean;
+  saveLabel?: string;
+  renderActions?: (saveButton: ReactNode) => ReactNode;
   onRetry: () => void;
   onReconnect: () => void;
   secondaryAction?: { label: string; onClick: () => void; disabled?: boolean };

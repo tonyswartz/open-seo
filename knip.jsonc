@@ -32,6 +32,9 @@
     // Alchemy state/bundle artifacts (gitignored)
     "!.alchemy/**",
     "!badseo/**",
+    // Skill-bundled scripts, run by hand from the skill's instructions
+    "!.agents/**",
+    "!.claude/**",
   ],
   "ignore": ["drizzle-prod.config.ts"],
   // Disable Drizzle plugin - it tries to load drizzle.config.ts which imports cloudflare:workers

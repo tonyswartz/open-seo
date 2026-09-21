@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import * as sqliteApp from "./app.schema";
 import * as sqliteSeoHistory from "./seo-history.schema";
 import * as sqliteProjectContext from "./project-context.schema";
+import * as sqliteReports from "./reports.schema";
+import * as sqliteReportTemplates from "./report-templates.schema";
 import * as sqliteAudit from "./audit.schema";
 import * as sqliteSam from "./sam.schema";
 import * as sqliteAuth from "./better-auth-schema";
@@ -19,6 +21,8 @@ import * as sqliteTelemetry from "./telemetry.schema";
 import * as pgApp from "./pg/app.schema";
 import * as pgSeoHistory from "./pg/seo-history.schema";
 import * as pgProjectContext from "./pg/project-context.schema";
+import * as pgReports from "./pg/reports.schema";
+import * as pgReportTemplates from "./pg/report-templates.schema";
 import * as pgAudit from "./pg/audit.schema";
 import * as pgSam from "./pg/sam.schema";
 import * as pgAuth from "./pg/better-auth-schema";
@@ -152,6 +156,8 @@ const sqliteAppTables = tablesFrom(
   sqliteApp,
   sqliteSeoHistory,
   sqliteProjectContext,
+  sqliteReports,
+  sqliteReportTemplates,
   sqliteAudit,
   sqliteSam,
   sqliteBilling,
@@ -164,6 +170,8 @@ const pgAppTables = tablesFrom(
   pgApp,
   pgSeoHistory,
   pgProjectContext,
+  pgReports,
+  pgReportTemplates,
   pgAudit,
   pgSam,
   pgBilling,

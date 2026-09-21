@@ -25,13 +25,13 @@ export const whoamiTool = {
     description:
       "Confirms the connected OpenSEO account, server mode, token scopes, and current credit balance when the user asks to check their account or connection. Uses no credits — does not call DataForSEO.",
     inputSchema: {} as Record<string, never>,
-    outputSchema: {
+    outputSchema: z.looseObject({
       userEmail: z.string(),
       scopes: z.array(z.string()),
       mode: z.enum(["hosted", "self-hosted"]),
       creditsRemaining: z.number().nullable(),
       ...optionalMetaOutputSchema,
-    },
+    }),
     annotations: {
       readOnlyHint: true,
       openWorldHint: false,
