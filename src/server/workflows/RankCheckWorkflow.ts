@@ -8,11 +8,11 @@ import { withPgClient } from "@/db";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { failRunIfActive } from "@/server/features/rank-tracking/services/rankCheckRunGuards";
+import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
 import {
-  runLiveCheck,
   runQueuedCheck,
   type QueuedCheckStats,
-} from "@/server/workflows/rankCheckPaths";
+} from "@/server/workflows/rankCheckQueuedPath";
 import { pgStep } from "@/server/workflows/pgStep";
 import { createDataforseoClient } from "@/server/lib/dataforseo";
 import { captureServerEvent } from "@/server/lib/posthog";
