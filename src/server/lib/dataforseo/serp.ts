@@ -356,15 +356,20 @@ export async function fetchRankCheckTaskResult(input: {
 /** One page of a stored SERP crawl, as returned by task_get/html. */
 const serpTaskHtmlPageSchema = z.object({ html: z.string() }).passthrough();
 
+export type RankCheckTaskPages =
+  | { status: "pending" }
+  /** One string per result page; empty for a "No Search Results" task. */
+  | { status: "ready"; pages: string[] };
+
 /**
- * Collect the page HTML of a queued task's crawl, one string per result page —
- * the same crawl task_get advanced parsed, so it can vouch for that result.
- * Free and not metered, like fetchRankCheckTaskResult. Empty when the task has
- * no page to show (still in progress, or failed).
+ * Collect the page HTML of a queued task's crawl — the same crawl task_get
+ * advanced parsed, so it can vouch for that result. Free and not metered,
+ * like fetchRankCheckTaskResult. Throws when DataForSEO cannot serve the page
+ * right now, so the caller can read it again next round.
  */
 export async function fetchRankCheckTaskHtml(
   taskId: string,
-): Promise<string[]> {
+): Promise<RankCheckTaskPages> {
   const response = await dataforseoGet(
     `/v3/serp/google/organic/task_get/html/${encodeURIComponent(taskId)}`,
   );
@@ -375,12 +380,23 @@ export async function fetchRankCheckTaskHtml(
       response?.status_message || "DataForSEO task_get/html failed",
     );
   }
-  if (task.status_code !== 20000) return [];
-  return parseTaskItems(
-    "google-organic-task-get-html",
-    task,
-    serpTaskHtmlPageSchema,
-  ).map((page) => page.html);
+  if (isTaskInProgress(task)) return { status: "pending" };
+  if (task.status_code !== 20000) {
+    if (isNoResultsTask(task)) return { status: "ready", pages: [] };
+    throw new AppError(
+      "INTERNAL_ERROR",
+      task.status_message ||
+        `DataForSEO task_get/html failed (${task.status_code})`,
+    );
+  }
+  return {
+    status: "ready",
+    pages: parseTaskItems(
+      "google-organic-task-get-html",
+      task,
+      serpTaskHtmlPageSchema,
+    ).map((page) => page.html),
+  };
 }
 
 export async function fetchLocalSerp(input: {

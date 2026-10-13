@@ -10,7 +10,10 @@ import type {
   RankCheckResult,
   RankCheckTaskInput,
 } from "@/server/lib/dataforseo";
-import { KEYWORDS_PER_BATCH } from "@/shared/rank-tracking";
+import {
+  KEYWORDS_PER_BATCH,
+  VALIDATED_CRAWLS_PER_PAIR,
+} from "@/shared/rank-tracking";
 import { pgStep } from "@/server/workflows/pgStep";
 import {
   checkBatchLive,
@@ -40,20 +43,34 @@ const QUEUED_POLL_INTERVALS = [
   "3 minutes",
 ] as const;
 
+// A validated run reposts dropped pairs through round 3 (~10 minutes in), so
+// it polls two rounds longer to collect those crawls instead of holding them.
+const VALIDATED_POLL_INTERVALS = [
+  ...QUEUED_POLL_INTERVALS,
+  "3 minutes",
+  "3 minutes",
+] as const;
+
 /** Concurrent task_get requests within a collect step. */
 const TASK_GET_CONCURRENCY = 25;
 
+// A task's page HTML is up to ten Google result pages, so far fewer of those
+// are read at once than the small advanced JSON results.
+const HTML_FETCH_CONCURRENCY = 5;
+
 /** Max task_get calls per collect round (bounds one round's fan-out). */
 const TASK_GETS_PER_COLLECT = 500;
+
+// A validated round reads each task's page as well, doubling its calls and
+// moving whole Google pages instead of small JSON, so it takes fewer tasks per
+// step; the rest wait for the next round.
+const VALIDATED_TASK_GETS_PER_COLLECT = 100;
 
 // Fork: Google's page carries this module when it did not apply the requested
 // location to the organic ranking (the organic list is then the national one);
 // a page with the location applied shows "Choose area" instead. English text,
 // so RankTrackingService.triggerCheck refuses validated runs in other languages.
 const LOCATION_DROPPED_MARKER = /Use precise location/i;
-
-/** Crawls a reading gets on a validated run before it is withheld. */
-const MAX_VALIDATION_ATTEMPTS = 4;
 
 // Reposts stop after this poll round so the new crawl can still be collected
 // inside the window QUEUED_POLL_INTERVALS leaves (see runQueuedCheck).
@@ -82,18 +99,77 @@ interface CollectRoundOutcome {
   dropped: QueuedTask[];
   /** Completed tasks whose page showed the location applied. */
   validated: number;
-  /** Completed tasks written unchecked because their page could not be read. */
+  /** Completed tasks whose page could not be read this round (read again next round). */
   htmlUnavailable: number;
+}
+
+type PageVerdict = "localized" | "dropped" | "unread";
+
+async function readPageVerdict(taskId: string): Promise<PageVerdict> {
+  const read = await fetchRankCheckTaskHtml(taskId);
+  if (read.status === "pending") return "unread";
+  return read.pages.some((html) => LOCATION_DROPPED_MARKER.test(html))
+    ? "dropped"
+    : "localized";
+}
+
+function pairList(tasks: RankCheckTaskInput[]): string {
+  return tasks
+    .map((t) => `${t.keyword}/${t.device}`)
+    .join(", ")
+    .slice(0, 500);
+}
+
+/**
+ * Validated runs: read each completed result's own page. A page carrying the
+ * dropped-location module makes the result dropped instead of written. A page
+ * that cannot be read yet keeps the task pending, so it is read again next
+ * round rather than written unchecked.
+ */
+async function validateCollected(
+  ctx: CheckContext,
+  items: Array<{ task: QueuedTask; result: RankCheckResult }>,
+) {
+  const completed: RankCheckResultWithDevice[] = [];
+  const dropped: QueuedTask[] = [];
+  const unread: QueuedTask[] = [];
+  let validated = 0;
+  for (let i = 0; i < items.length; i += HTML_FETCH_CONCURRENCY) {
+    const slice = items.slice(i, i + HTML_FETCH_CONCURRENCY);
+    const verdicts = await Promise.allSettled(
+      slice.map(({ task }) => readPageVerdict(task.taskId)),
+    );
+    verdicts.forEach((verdict, index) => {
+      const { task, result } = slice[index];
+      const outcome: PageVerdict =
+        verdict.status === "fulfilled" ? verdict.value : "unread";
+      if (outcome === "dropped") {
+        console.warn(
+          `[rank-check] ${ctx.runId} task ${task.taskId} page shows Google dropped the location (attempt ${task.attempt}) keyword="${task.keyword}" device=${task.device}`,
+        );
+        dropped.push(task);
+        return;
+      }
+      if (outcome === "unread") {
+        console.warn(
+          `[rank-check] ${ctx.runId} task ${task.taskId} page not readable yet, reading again next round`,
+          verdict.status === "rejected" ? verdict.reason : "",
+        );
+        unread.push(task);
+        return;
+      }
+      validated++;
+      completed.push({ ...result, device: task.device });
+    });
+  }
+  return { completed, dropped, unread, validated };
 }
 
 /**
  * Fetch results for queued tasks (one free task_get each), persist completed
  * snapshots, and update run progress. Transient task_get failures stay
  * pending for the next round. On a validated run each completed result is
- * checked against its own page (one more free call): a page carrying Google's
- * dropped-location module comes back as dropped instead of being written, and
- * a page that cannot be read is written as is, so a secondary failure never
- * costs a reading.
+ * checked against its own page first (validateCollected).
  */
 async function collectQueuedRound(
   ctx: CheckContext,
@@ -144,30 +220,14 @@ async function collectQueuedRound(
       }
     });
 
-    const pages = await Promise.allSettled(
-      toValidate.map(({ task }) => fetchRankCheckTaskHtml(task.taskId)),
-    );
-    pages.forEach((page, index) => {
-      const { task, result } = toValidate[index];
-      if (page.status === "rejected" || page.value.length === 0) {
-        htmlUnavailable++;
-        console.warn(
-          `[rank-check] ${ctx.runId} task ${task.taskId} page unavailable, reading kept unchecked`,
-          page.status === "rejected" ? page.reason : "",
-        );
-        completed.push({ ...result, device: task.device });
-      } else if (
-        page.value.some((html) => LOCATION_DROPPED_MARKER.test(html))
-      ) {
-        console.warn(
-          `[rank-check] ${ctx.runId} task ${task.taskId} page shows Google dropped the location (attempt ${task.attempt}) keyword="${task.keyword}" device=${task.device}`,
-        );
-        dropped.push(task);
-      } else {
-        validated++;
-        completed.push({ ...result, device: task.device });
-      }
-    });
+    if (toValidate.length > 0) {
+      const checked = await validateCollected(ctx, toValidate);
+      completed.push(...checked.completed);
+      dropped.push(...checked.dropped);
+      stillPending.push(...checked.unread);
+      validated += checked.validated;
+      htmlUnavailable += checked.unread.length;
+    }
   }
 
   if (firstError) {
@@ -252,9 +312,15 @@ export interface QueuedCheckStats {
   locationDropped: number;
   /** Validated run: dropped results crawled again. */
   reposted: number;
-  /** Validated run: readings withheld so the previous position stands. */
+  /** Validated run: pairs dropped on every crawl, held at their previous position. */
   withheld: number;
-  /** Validated run: results written unchecked because their page was unreadable. */
+  /**
+   * Validated run: pairs the queue did not deliver in time or the vendor
+   * rejected or failed, held at their previous position because live results
+   * cannot be checked against their page.
+   */
+  undelivered: number;
+  /** Validated run: page reads that failed and were retried the next round. */
   htmlUnavailable: number;
 }
 
@@ -278,7 +344,9 @@ export async function runQueuedCheck(
   // chunk's pairs go to the live fallback instead.
   let pending: QueuedTask[] = [];
   const fallback: RankCheckTaskInput[] = [];
+  // Validated runs only: pairs held at their previous position.
   const withheld: RankCheckTaskInput[] = [];
+  const undelivered: RankCheckTaskInput[] = [];
   for (let i = 0; i < taskInputs.length; i += MAX_TASKS_PER_POST) {
     const chunk = taskInputs.slice(i, i + MAX_TASKS_PER_POST);
     const postIndex = Math.floor(i / MAX_TASKS_PER_POST);
@@ -301,6 +369,7 @@ export async function runQueuedCheck(
     locationDropped: 0,
     reposted: 0,
     withheld: 0,
+    undelivered: 0,
     htmlUnavailable: 0,
   };
 
@@ -308,17 +377,20 @@ export async function runQueuedCheck(
   // collect failure (past its retries) leaves that round's tasks pending for
   // the next round — or the live fallback — instead of failing the run; the
   // posted tasks are already paid for.
-  for (
-    let round = 0;
-    round < QUEUED_POLL_INTERVALS.length && pending.length > 0;
-    round++
-  ) {
-    await step.sleep(`wait-${round}`, QUEUED_POLL_INTERVALS[round]);
+  const intervals = ctx.validateSerps
+    ? VALIDATED_POLL_INTERVALS
+    : QUEUED_POLL_INTERVALS;
+  for (let round = 0; round < intervals.length && pending.length > 0; round++) {
+    await step.sleep(`wait-${round}`, intervals[round]);
 
     // Cap task_gets per round so one collect step stays well inside the
-    // per-invocation subrequest limit at the 1000-keyword config ceiling.
-    const batch = pending.slice(0, TASK_GETS_PER_COLLECT);
-    const overflow = pending.slice(TASK_GETS_PER_COLLECT);
+    // per-invocation subrequest limit at the 1000-keyword config ceiling; a
+    // validated round also reads each task's page, so it takes fewer.
+    const cap = ctx.validateSerps
+      ? VALIDATED_TASK_GETS_PER_COLLECT
+      : TASK_GETS_PER_COLLECT;
+    const batch = pending.slice(0, cap);
+    const overflow = pending.slice(cap);
 
     let outcome: CollectRoundOutcome;
     try {
@@ -345,7 +417,7 @@ export async function runQueuedCheck(
     const repost =
       round <= LAST_REPOST_ROUND
         ? outcome.dropped.filter(
-            (task) => task.attempt < MAX_VALIDATION_ATTEMPTS,
+            (task) => task.attempt < VALIDATED_CRAWLS_PER_PAIR,
           )
         : [];
     withheld.push(...outcome.dropped.filter((task) => !repost.includes(task)));
@@ -368,26 +440,25 @@ export async function runQueuedCheck(
         })),
       );
       stats.reposted += posted.length;
-      withheld.push(...rejected);
+      undelivered.push(...rejected);
     }
   }
 
   if (ctx.validateSerps) {
     // Live results cannot be checked against their page, so a validated run
-    // withholds what the queue did not deliver instead of falling back. The
-    // run's error line tells the user which readings kept their old position.
-    withheld.push(...pending, ...fallback);
+    // holds what the queue did not deliver instead of falling back. Finalize
+    // writes the held counts into the run's message from these stats.
+    undelivered.push(...pending, ...fallback);
     stats.withheld = withheld.length;
+    stats.undelivered = undelivered.length;
     if (withheld.length > 0) {
-      const pairs = withheld.map((t) => `${t.keyword}/${t.device}`).join(", ");
       console.warn(
-        `[rank-check] ${ctx.runId} withheld ${withheld.length} reading(s): ${pairs.slice(0, 500)}`,
+        `[rank-check] ${ctx.runId} held ${withheld.length} reading(s) dropped on every crawl: ${pairList(withheld)}`,
       );
-      await pgStep(step, "withhold", SINGLE_ATTEMPT_STEP_CONFIG, () =>
-        RankTrackingRepository.setRunErrorIfEmpty(
-          ctx.runId,
-          `Withheld ${withheld.length} reading(s): Google dropped the tracker's location on every attempt; previous positions kept.`,
-        ),
+    }
+    if (undelivered.length > 0) {
+      console.warn(
+        `[rank-check] ${ctx.runId} held ${undelivered.length} undelivered reading(s): ${pairList(undelivered)}`,
       );
     }
     return stats;
