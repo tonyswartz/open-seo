@@ -123,12 +123,17 @@ export async function fetchLiveSerp(input: {
   };
 }
 
+/** Organic items a rank check keeps as the page's composition. */
+const TOP_DOMAINS_PER_RESULT = 10;
+
 export interface RankCheckResult {
   keywordId: string;
   keyword: string;
   position: number | null;
   url: string | null;
   serpFeatures: string[];
+  /** The page's top organic domains in rank order, lowercase, no "www.". */
+  topDomains: string[];
 }
 
 function buildRankCheckResult(
@@ -153,6 +158,15 @@ function buildRankCheckResult(
       : null,
     url: organicMatch?.url ?? null,
     serpFeatures: [...new Set(items.map((item) => item.type).filter(Boolean))],
+    topDomains: [
+      ...new Set(
+        items
+          .filter((item) => item.type === "organic" && item.domain)
+          .map((item) =>
+            (item.domain ?? "").toLowerCase().replace(/^www\./, ""),
+          ),
+      ),
+    ].slice(0, TOP_DOMAINS_PER_RESULT),
   };
 }
 
