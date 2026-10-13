@@ -23,7 +23,9 @@ import {
 } from "@/server/workflows/rankCheckPaths";
 
 // The task-queue path of a rank check (scheduled and validated runs). The live
-// path and the pieces both share live in rankCheckPaths.ts.
+// path and the pieces both share live in rankCheckPaths.ts, whose "Step bodies"
+// note also governs collectQueuedRound and postQueuedChunk here: a step body
+// reads only its arguments and returns what the engine persists and replays.
 
 // Poll cadence for queued tasks. Standard-priority tasks complete in ~5
 // minutes on average, so the first check waits 4 minutes; cumulative waits are
@@ -46,7 +48,8 @@ const TASK_GETS_PER_COLLECT = 500;
 
 // Fork: Google's page carries this module when it did not apply the requested
 // location to the organic ranking (the organic list is then the national one);
-// a page with the location applied shows "Choose area" instead. English only.
+// a page with the location applied shows "Choose area" instead. English text,
+// so RankTrackingService.triggerCheck refuses validated runs in other languages.
 const LOCATION_DROPPED_MARKER = /Use precise location/i;
 
 /** Crawls a reading gets on a validated run before it is withheld. */
@@ -58,10 +61,6 @@ const LAST_REPOST_ROUND = 3;
 
 /** A queued task with the number of crawls spent on its keyword/device pair. */
 type QueuedTask = PostedRankCheckTask & { attempt: number };
-
-function withheldMessage(count: number): string {
-  return `Withheld ${count} reading(s): Google dropped the tracker's location on every attempt; previous positions kept.`;
-}
 
 // Collect steps may issue hundreds of task_get calls, so they get more room
 // than SINGLE_ATTEMPT_STEP_CONFIG's 2-minute timeout. Unlike the metered
@@ -150,14 +149,16 @@ async function collectQueuedRound(
     );
     pages.forEach((page, index) => {
       const { task, result } = toValidate[index];
-      if (page.status === "rejected" || page.value === null) {
+      if (page.status === "rejected" || page.value.length === 0) {
         htmlUnavailable++;
         console.warn(
           `[rank-check] ${ctx.runId} task ${task.taskId} page unavailable, reading kept unchecked`,
           page.status === "rejected" ? page.reason : "",
         );
         completed.push({ ...result, device: task.device });
-      } else if (LOCATION_DROPPED_MARKER.test(page.value)) {
+      } else if (
+        page.value.some((html) => LOCATION_DROPPED_MARKER.test(html))
+      ) {
         console.warn(
           `[rank-check] ${ctx.runId} task ${task.taskId} page shows Google dropped the location (attempt ${task.attempt}) keyword="${task.keyword}" device=${task.device}`,
         );
@@ -192,6 +193,46 @@ async function collectQueuedRound(
     dropped,
     validated,
     htmlUnavailable,
+  };
+}
+
+const pairKey = (task: RankCheckTaskInput) =>
+  `${task.keywordId}:${task.device}`;
+
+/**
+ * Post one chunk of keyword/device pairs to the queue in a metered step. A
+ * failed post must not abort the run — earlier chunks are already charged at
+ * DataForSEO — so the pairs the queue did not accept come back as rejected.
+ */
+async function postQueuedChunk(
+  step: WorkflowStep,
+  ctx: CheckContext,
+  stepName: string,
+  chunk: RankCheckTaskInput[],
+): Promise<{ posted: PostedRankCheckTask[]; rejected: RankCheckTaskInput[] }> {
+  let posted: PostedRankCheckTask[] = [];
+  try {
+    posted = await pgStep(
+      step,
+      stepName,
+      SINGLE_ATTEMPT_STEP_CONFIG,
+      async () =>
+        ctx.client.serp.rankCheckTaskPost({
+          tasks: chunk,
+          locationCode: ctx.locationCode,
+          languageCode: ctx.languageCode,
+          locationName: ctx.locationName,
+          depth: ctx.serpDepth,
+          targetDomain: ctx.domain,
+        }),
+    );
+  } catch (error) {
+    console.warn(`[rank-check] ${ctx.runId} ${stepName} failed:`, error);
+  }
+  const accepted = new Set(posted.map(pairKey));
+  return {
+    posted,
+    rejected: chunk.filter((task) => !accepted.has(pairKey(task))),
   };
 }
 
@@ -231,17 +272,6 @@ export async function runQueuedCheck(
 ): Promise<QueuedCheckStats> {
   const taskInputs = expandToTaskInputs(ctx.keywords, ctx.devices);
 
-  // Fork: the dropped-location module is matched by its English text, so a
-  // validated run in another language is a plain queued run.
-  const validate =
-    ctx.validateSerps === true && /^en(?:[-_]|$)/i.test(ctx.languageCode);
-  if (ctx.validateSerps && !validate) {
-    console.warn(
-      `[rank-check] ${ctx.runId} SERP validation skipped for language_code=${ctx.languageCode} (English pages only)`,
-    );
-  }
-  const roundCtx: CheckContext = { ...ctx, validateSerps: validate };
-
   // Post all tasks to the queue, <=100 per request, one metered step each.
   // A failed chunk must not abort the run — earlier chunks were already
   // charged at DataForSEO, so their results have to be collected. The failed
@@ -252,39 +282,14 @@ export async function runQueuedCheck(
   for (let i = 0; i < taskInputs.length; i += MAX_TASKS_PER_POST) {
     const chunk = taskInputs.slice(i, i + MAX_TASKS_PER_POST);
     const postIndex = Math.floor(i / MAX_TASKS_PER_POST);
-    let posted: PostedRankCheckTask[];
-    try {
-      posted = await pgStep(
-        step,
-        `post-tasks-${postIndex}`,
-        SINGLE_ATTEMPT_STEP_CONFIG,
-        async () =>
-          ctx.client.serp.rankCheckTaskPost({
-            tasks: chunk,
-            locationCode: ctx.locationCode,
-            languageCode: ctx.languageCode,
-            locationName: ctx.locationName,
-            depth: ctx.serpDepth,
-            targetDomain: ctx.domain,
-          }),
-      );
-    } catch (error) {
-      console.warn(
-        `[rank-check] ${ctx.runId} post-tasks-${postIndex} failed:`,
-        error,
-      );
-      fallback.push(...chunk);
-      continue;
-    }
+    const { posted, rejected } = await postQueuedChunk(
+      step,
+      ctx,
+      `post-tasks-${postIndex}`,
+      chunk,
+    );
     pending.push(...posted.map((task) => ({ ...task, attempt: 1 })));
-    if (posted.length < chunk.length) {
-      const acceptedKeys = new Set(
-        posted.map((t) => `${t.keywordId}:${t.device}`),
-      );
-      fallback.push(
-        ...chunk.filter((t) => !acceptedKeys.has(`${t.keywordId}:${t.device}`)),
-      );
-    }
+    fallback.push(...rejected);
   }
 
   const stats: QueuedCheckStats = {
@@ -321,7 +326,7 @@ export async function runQueuedCheck(
         step,
         `collect-${round}`,
         COLLECT_STEP_CONFIG,
-        () => collectQueuedRound(roundCtx, batch),
+        () => collectQueuedRound(ctx, batch),
       );
     } catch (error) {
       console.warn(`[rank-check] ${ctx.runId} collect-${round} failed:`, error);
@@ -337,52 +342,37 @@ export async function runQueuedCheck(
 
     // A dropped reading is crawled again while attempts and the window allow;
     // otherwise it is withheld and the keyword keeps its previous position.
-    const repost = outcome.dropped.filter(
-      (task) =>
-        task.attempt < MAX_VALIDATION_ATTEMPTS && round <= LAST_REPOST_ROUND,
-    );
+    const repost =
+      round <= LAST_REPOST_ROUND
+        ? outcome.dropped.filter(
+            (task) => task.attempt < MAX_VALIDATION_ATTEMPTS,
+          )
+        : [];
     withheld.push(...outcome.dropped.filter((task) => !repost.includes(task)));
     for (let i = 0; i < repost.length; i += MAX_TASKS_PER_POST) {
       const chunk = repost.slice(i, i + MAX_TASKS_PER_POST);
       const chunkIndex = Math.floor(i / MAX_TASKS_PER_POST);
-      let posted: PostedRankCheckTask[] = [];
-      try {
-        posted = await pgStep(
-          step,
-          `repost-${round}-${chunkIndex}`,
-          SINGLE_ATTEMPT_STEP_CONFIG,
-          async () =>
-            ctx.client.serp.rankCheckTaskPost({
-              tasks: chunk,
-              locationCode: ctx.locationCode,
-              languageCode: ctx.languageCode,
-              locationName: ctx.locationName,
-              depth: ctx.serpDepth,
-              targetDomain: ctx.domain,
-            }),
-        );
-      } catch (error) {
-        console.warn(
-          `[rank-check] ${ctx.runId} repost-${round}-${chunkIndex} failed:`,
-          error,
-        );
-      }
-      const byKey = new Map(
-        chunk.map((task) => [`${task.keywordId}:${task.device}`, task]),
+      const attempts = new Map(
+        chunk.map((task) => [pairKey(task), task.attempt]),
       );
-      for (const task of posted) {
-        const key = `${task.keywordId}:${task.device}`;
-        const previous = byKey.get(key);
-        if (!previous) continue;
-        byKey.delete(key);
-        pending.push({ ...task, attempt: previous.attempt + 1 });
-      }
+      const { posted, rejected } = await postQueuedChunk(
+        step,
+        ctx,
+        `repost-${round}-${chunkIndex}`,
+        chunk,
+      );
+      pending.push(
+        ...posted.map((task) => ({
+          ...task,
+          attempt: (attempts.get(pairKey(task)) ?? 1) + 1,
+        })),
+      );
       stats.reposted += posted.length;
-      withheld.push(...byKey.values());
+      withheld.push(...rejected);
     }
   }
 
-  if (validate) {
+  if (ctx.validateSerps) {
     // Live results cannot be checked against their page, so a validated run
     // withholds what the queue did not deliver instead of falling back. The
     // run's error line tells the user which readings kept their old position.
@@ -396,7 +386,7 @@ export async function runQueuedCheck(
       await pgStep(step, "withhold", SINGLE_ATTEMPT_STEP_CONFIG, () =>
         RankTrackingRepository.setRunErrorIfEmpty(
           ctx.runId,
-          withheldMessage(withheld.length),
+          `Withheld ${withheld.length} reading(s): Google dropped the tracker's location on every attempt; previous positions kept.`,
         ),
       );
     }

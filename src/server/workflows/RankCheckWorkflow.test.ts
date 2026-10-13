@@ -33,6 +33,12 @@ vi.mock("@/server/features/rank-tracking/services/rankCheckRunGuards", () => ({
 }));
 vi.mock("@/server/workflows/rankCheckPaths", () => ({
   runLiveCheck: mocks.runLiveCheck,
+  SINGLE_ATTEMPT_STEP_CONFIG: {
+    retries: { limit: 0, delay: "1 second" },
+    timeout: "2 minutes",
+  },
+}));
+vi.mock("@/server/workflows/rankCheckQueuedPath", () => ({
   runQueuedCheck: vi.fn(),
 }));
 vi.mock("@/server/workflows/pgStep", () => ({

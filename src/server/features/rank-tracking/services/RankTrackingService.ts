@@ -23,11 +23,12 @@ import {
   reconcileActiveRankCheckRun,
 } from "./rankCheckRunGuards";
 import {
-  estimateRankCheckCredits,
   computeNextCheckAt,
+  estimateRankCheckCredits,
   isScheduledRankTrackingInterval,
   MAX_CONFIGS_PER_PROJECT,
   rankCheckCostApprovalError,
+  rankCheckMethod,
 } from "@/shared/rank-tracking";
 import {
   getIsoCountryCode,
@@ -282,6 +283,16 @@ async function triggerCheck(input: {
 
   await requireRankCheckAccess(input.billingCustomer.organizationId);
 
+  // Validation reads Google's English page text (rankCheckQueuedPath), so a
+  // tracker in another language cannot be validated; say so rather than run
+  // an unchecked queue check the caller would take for a checked one.
+  if (input.validateSerps && !/^en(?:[-_]|$)/i.test(config.languageCode)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `Validated checks read Google's English page text; this tracker uses language_code "${config.languageCode}".`,
+    );
+  }
+
   const keywords = await RankTrackingRepository.getKeywordsForConfig(config.id);
   if (keywords.length === 0) {
     throw new AppError(
@@ -295,7 +306,7 @@ async function triggerCheck(input: {
       keywords.map((kw) => kw.keyword),
       config.devices,
       config.serpDepth,
-      input.validateSerps ? "queued" : "live",
+      rankCheckMethod("manual", input.validateSerps),
     );
     if (costCredits > input.maxCostCredits) {
       throw new AppError(
