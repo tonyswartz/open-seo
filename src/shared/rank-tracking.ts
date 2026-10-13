@@ -30,6 +30,19 @@ const QUEUED_EXTRA_PAGE_COST_USD = 0.00045;
  */
 type RankCheckMethod = "live" | "queued";
 
+/**
+ * Scheduled checks and validated manual checks go through DataForSEO's task
+ * queue (~30% of live cost, minutes instead of seconds); other manual checks
+ * stay on the live endpoint. The trigger-time estimate and the workflow's
+ * re-estimate must agree, so both read it from here.
+ */
+export function rankCheckMethod(
+  trigger: "manual" | "scheduled",
+  validateSerps: boolean | undefined,
+): RankCheckMethod {
+  return trigger === "scheduled" || validateSerps === true ? "queued" : "live";
+}
+
 /** How many keywords are checked per batch */
 export const KEYWORDS_PER_BATCH = 10;
 

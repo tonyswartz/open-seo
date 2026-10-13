@@ -8,7 +8,10 @@ import { withPgClient } from "@/db";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { failRunIfActive } from "@/server/features/rank-tracking/services/rankCheckRunGuards";
-import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
+import {
+  runLiveCheck,
+  SINGLE_ATTEMPT_STEP_CONFIG,
+} from "@/server/workflows/rankCheckPaths";
 import {
   runQueuedCheck,
   type QueuedCheckStats,
@@ -25,13 +28,9 @@ import {
 import {
   estimateRankCheckCredits,
   rankCheckCostApprovalError,
+  rankCheckMethod,
 } from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
-
-const SINGLE_ATTEMPT_STEP_CONFIG = {
-  retries: { limit: 0, delay: "1 second" as const },
-  timeout: "2 minutes" as const,
-};
 
 interface RankCheckParams {
   runId: string;
@@ -305,10 +304,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       keywordIds,
       maxCostCredits,
     } = event.payload;
-    // Scheduled checks use DataForSEO's task queue (~30% of live cost), as do
-    // validated manual checks; other manual checks stay on the live endpoint
-    // for instant results.
-    const useQueue = trigger === "scheduled" || validateSerps === true;
+    const method = rankCheckMethod(trigger, validateSerps);
 
     // Guard: skip if config was archived after the workflow was triggered
     const configCheck = await pgStep(
@@ -344,7 +340,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
             billingCustomer,
             devices,
             serpDepth,
-            method: useQueue ? "queued" : "live",
+            method,
             keywordIds,
             maxCostCredits,
           }),
@@ -371,7 +367,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
           runId,
           validateSerps,
         };
-        if (useQueue) {
+        if (method === "queued") {
           queueStats = await runQueuedCheck(step, checkContext);
         } else {
           await runLiveCheck(step, checkContext);
