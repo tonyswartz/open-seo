@@ -31,7 +31,6 @@ export {
   fetchRankCheckTaskHtml,
   fetchRankCheckTaskResult,
 } from "@/server/lib/dataforseo/serp";
-export type { RankCheckTaskPages } from "@/server/lib/dataforseo/serp";
 export {
   fetchAiTrackingTaskResult,
   type AiTrackingAnswer,

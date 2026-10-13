@@ -356,7 +356,7 @@ export async function fetchRankCheckTaskResult(input: {
 /** One page of a stored SERP crawl, as returned by task_get/html. */
 const serpTaskHtmlPageSchema = z.object({ html: z.string() }).passthrough();
 
-export type RankCheckTaskPages =
+type RankCheckTaskPages =
   | { status: "pending" }
   /** One string per result page; empty for a "No Search Results" task. */
   | { status: "ready"; pages: string[] };
