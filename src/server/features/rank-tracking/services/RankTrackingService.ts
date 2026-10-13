@@ -29,6 +29,7 @@ import {
   MAX_CONFIGS_PER_PROJECT,
   rankCheckCostApprovalError,
   rankCheckMethod,
+  VALIDATED_CRAWLS_PER_PAIR,
 } from "@/shared/rank-tracking";
 import {
   getIsoCountryCode,
@@ -283,14 +284,30 @@ async function triggerCheck(input: {
 
   await requireRankCheckAccess(input.billingCustomer.organizationId);
 
-  // Validation reads Google's English page text (rankCheckQueuedPath), so a
-  // tracker in another language cannot be validated; say so rather than run
-  // an unchecked queue check the caller would take for a checked one.
-  if (input.validateSerps && !/^en(?:[-_]|$)/i.test(config.languageCode)) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      `Validated checks read Google's English page text; this tracker uses language_code "${config.languageCode}".`,
-    );
+  if (input.validateSerps) {
+    // Validation reads Google's English page text (rankCheckQueuedPath), so a
+    // tracker in another language cannot be validated; say so rather than run
+    // an unchecked queue check the caller would take for a checked one.
+    if (!/^en(?:[-_]|$)/i.test(config.languageCode)) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        `Validated checks read Google's English page text; this tracker uses language_code "${config.languageCode}".`,
+      );
+    }
+    // It asks whether Google applied a city or region. On a whole-country
+    // tracker the national list is the right reading, and Google shows the
+    // precise-location prompt there too, so every page would read as dropped.
+    // Google geo target IDs below 10000 are countries; DataForSEO names
+    // sub-country locations as "City,Region,Country".
+    const subCountry = config.locationName
+      ? config.locationName.includes(",")
+      : config.locationCode >= 10000;
+    if (!subCountry) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Validated checks need a city or region location; this tracker is set to a whole country.",
+      );
+    }
   }
 
   const keywords = await RankTrackingRepository.getKeywordsForConfig(config.id);
@@ -307,6 +324,7 @@ async function triggerCheck(input: {
       config.devices,
       config.serpDepth,
       rankCheckMethod("manual", input.validateSerps),
+      input.validateSerps ? VALIDATED_CRAWLS_PER_PAIR : 1,
     );
     if (costCredits > input.maxCostCredits) {
       throw new AppError(
