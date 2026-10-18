@@ -132,7 +132,7 @@ export interface RankCheckResult {
   position: number | null;
   url: string | null;
   serpFeatures: string[];
-  /** The page's top organic domains in rank order, lowercase, no "www.". */
+  /** Domains of the page's first ten organic results in rank order, deduplicated, lowercase, no "www.". */
   topDomains: string[];
 }
 
@@ -158,15 +158,21 @@ function buildRankCheckResult(
       : null,
     url: organicMatch?.url ?? null,
     serpFeatures: [...new Set(items.map((item) => item.type).filter(Boolean))],
+    // Domains of the first ten organic results only. Deduplicating before
+    // cutting at ten would reach past the first page whenever a domain
+    // repeats, and how far the crawl went depends on where the target was
+    // found, so the same page would get a different composition.
     topDomains: [
       ...new Set(
         items
-          .filter((item) => item.type === "organic" && item.domain)
+          .filter((item) => item.type === "organic")
+          .slice(0, TOP_DOMAINS_PER_RESULT)
+          .filter((item) => item.domain)
           .map((item) =>
             (item.domain ?? "").toLowerCase().replace(/^www\./, ""),
           ),
       ),
-    ].slice(0, TOP_DOMAINS_PER_RESULT),
+    ],
   };
 }
 
