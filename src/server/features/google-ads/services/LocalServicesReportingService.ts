@@ -617,37 +617,42 @@ async function getPerformance(input: {
     const { startDate, endDate } = resolveRange(connection.timeZone, input);
     const accountToday = todayInAccountZone(connection.timeZone);
     const monthStart = monthStartFromIsoDate(accountToday);
-    const [campaignRows, spendMicros, last7DaysSpendMicros, monthToDateSpendMicros, leads] =
-      await Promise.all([
-        client.search(
-          connection.customerId,
-          `SELECT campaign.id, campaign.name, campaign.status,
+    const [
+      campaignRows,
+      spendMicros,
+      last7DaysSpendMicros,
+      monthToDateSpendMicros,
+      leads,
+    ] = await Promise.all([
+      client.search(
+        connection.customerId,
+        `SELECT campaign.id, campaign.name, campaign.status,
                   campaign_budget.amount_micros, campaign_budget.period, campaign_budget.type
            FROM campaign
            WHERE campaign.advertising_channel_type = 'LOCAL_SERVICES'`,
-          { loginCustomerId: connection.loginCustomerId },
-        ),
-        fetchSpendMicros(client, connection, startDate, endDate),
-        fetchSpendMicros(
-          client,
-          connection,
-          isoDateBefore(accountToday, PACING_WINDOW_DAYS - 1),
-          accountToday,
-        ),
-        fetchSpendMicros(client, connection, monthStart, accountToday),
-        // One over the cap: the extra row is how "exactly 1,000 leads" is told
-        // apart from "we stopped at 1,000".
-        fetchLeads(
-          client,
-          connection,
-          {
-            startDate,
-            endDate,
-            limit: MAX_LEADS_FOR_TOTALS + 1,
-          },
-          false,
-        ),
-      ]);
+        { loginCustomerId: connection.loginCustomerId },
+      ),
+      fetchSpendMicros(client, connection, startDate, endDate),
+      fetchSpendMicros(
+        client,
+        connection,
+        isoDateBefore(accountToday, PACING_WINDOW_DAYS - 1),
+        accountToday,
+      ),
+      fetchSpendMicros(client, connection, monthStart, accountToday),
+      // One over the cap: the extra row is how "exactly 1,000 leads" is told
+      // apart from "we stopped at 1,000".
+      fetchLeads(
+        client,
+        connection,
+        {
+          startDate,
+          endDate,
+          limit: MAX_LEADS_FOR_TOTALS + 1,
+        },
+        false,
+      ),
+    ]);
 
     const campaigns = campaignRows
       .map((row) => campaignRowSchema.parse(row))

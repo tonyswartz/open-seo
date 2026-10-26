@@ -140,16 +140,16 @@ describe("LocalServicesReportingService", () => {
         await LocalServicesReportingService.getPerformance(range);
 
       expect(performance.spendMicros).toBe(123_000_000);
-    expect(performance.leadTotals).toEqual({
-      total: 3,
-      charged: 2,
-      booked: 1,
-      phoneCalls: 2,
-      messages: 1,
-      bookings: 0,
-      truncated: false,
-    });
-    expect(performance.costPerChargedLeadMicros).toBe(61_500_000);
+      expect(performance.leadTotals).toEqual({
+        total: 3,
+        charged: 2,
+        booked: 1,
+        phoneCalls: 2,
+        messages: 1,
+        bookings: 0,
+        truncated: false,
+      });
+      expect(performance.costPerChargedLeadMicros).toBe(61_500_000);
       expect(performance.pacing.weeklyBudgetMicros).toBe(350_000_000);
       expect(performance.pacing.last7DaysSpendMicros).toBe(175_000_000);
       expect(performance.pacing.utilization).toBe(0.5);
@@ -177,7 +177,8 @@ describe("LocalServicesReportingService", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-27T04:00:00Z"));
     mocks.search.mockImplementation((_customerId: string, query: string) => {
-      if (query.includes("FROM local_services_lead")) return Promise.resolve([]);
+      if (query.includes("FROM local_services_lead"))
+        return Promise.resolve([]);
       if (query.includes("metrics.cost_micros")) {
         return Promise.resolve([
           {
