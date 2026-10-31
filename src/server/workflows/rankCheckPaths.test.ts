@@ -564,6 +564,35 @@ describe("validated queued rank checks", () => {
     expect(stats).toMatchObject({ historySuspect: 4, withheld: 1 });
   });
 
+  it("stores a listing with no page below the pair's best position", async () => {
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(1, "https://www.example.com/"),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue(completedAt(2));
+
+    await runQueued();
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(1);
+    expect(mocks.insertSnapshots).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ position: 2, url: null }),
+    ]);
+  });
+
+  it("takes the pair's usual page from an older row when its newest best has none", async () => {
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(1, null),
+      historyRow(1, "https://www.example.com/"),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue(
+      completedAt(2, "https://www.example.com/small-business-lawyer"),
+    );
+
+    const stats = await runQueued();
+
+    expect(mocks.insertSnapshots).not.toHaveBeenCalled();
+    expect(stats).toMatchObject({ withheld: 1 });
+  });
+
   // The target never ranks here, so only the page's composition can tell a
   // national page from the keyword's own page.
   it("recrawls a page that keeps fewer than half of the pair's usual sites", async () => {

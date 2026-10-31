@@ -101,7 +101,13 @@ export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
     const key = `${row.trackingKeywordId}:${row.device}`;
     if (row.position !== null) {
       const current = best.get(key);
-      if (!current || row.position < current.position) {
+      // Fork: a listing behind a Google goto link has no page, so an older row
+      // at the same position supplies it.
+      if (
+        !current ||
+        row.position < current.position ||
+        (row.position === current.position && current.url === null)
+      ) {
         best.set(key, { position: row.position, url: row.url });
       }
     }
@@ -133,8 +139,7 @@ const normalizePageUrl = (url: string) =>
     .split(/[?#]/)[0]
     .replace(/\/+$/, "");
 
-function samePage(a: string | null, b: string | null): boolean {
-  if (a === null || b === null) return a === b;
+function samePage(a: string, b: string): boolean {
   return normalizePageUrl(a) === normalizePageUrl(b);
 }
 
@@ -143,6 +148,8 @@ function offPosition(result: RankCheckResult, baseline: PairBaseline): boolean {
   if (best === null || best > HISTORY_RANKED_CEILING) return false;
   if (result.position === null) return true;
   if (result.position > best + HISTORY_DROP_TOLERANCE) return true;
+  // Fork: a listing behind a Google goto link has no page to compare.
+  if (result.url === null || baseline.bestUrl === null) return false;
   return result.position > best && !samePage(result.url, baseline.bestUrl);
 }
 
