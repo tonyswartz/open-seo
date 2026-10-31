@@ -78,6 +78,21 @@ const VALIDATED_TASK_GETS_PER_COLLECT = 100;
 // inside the window VALIDATED_POLL_INTERVALS leaves (see runQueuedCheck).
 const LAST_REPOST_ROUND = 5;
 
+// Fork: crawls minutes apart mostly get the same page, while a crawl half an
+// hour later often gets a clean one. So a validated run stops at this many
+// crawls, waits, and spends what is left of VALIDATED_CRAWLS_PER_PAIR on the
+// pairs it would otherwise hold.
+const VALIDATED_FIRST_PASS_CRAWLS = 4;
+const LATE_PASS_WAIT = "20 minutes";
+const LATE_POLL_INTERVALS = [
+  "4 minutes",
+  "2 minutes",
+  "2 minutes",
+  "2 minutes",
+  "3 minutes",
+] as const;
+const LATE_LAST_REPOST_ROUND = 1;
+
 interface CollectRoundOutcome {
   /** Snapshots written this round. */
   collected: number;
@@ -300,7 +315,7 @@ export async function runQueuedCheck(
   let pending: QueuedTask[] = [];
   const fallback: RankCheckTaskInput[] = [];
   // Validated runs only: pairs held at their previous position.
-  const withheld: RankCheckTaskInput[] = [];
+  const withheld: QueuedTask[] = [];
   const undelivered: RankCheckTaskInput[] = [];
   for (let i = 0; i < taskInputs.length; i += MAX_TASKS_PER_POST) {
     const chunk = taskInputs.slice(i, i + MAX_TASKS_PER_POST);
@@ -329,63 +344,15 @@ export async function runQueuedCheck(
     htmlUnavailable: 0,
   };
 
-  // Poll until everything is collected or the ~15 minute window closes. A
-  // collect failure (past its retries) leaves that round's tasks pending for
-  // the next round — or the live fallback — instead of failing the run; the
-  // posted tasks are already paid for.
-  const intervals = ctx.validateSerps
-    ? VALIDATED_POLL_INTERVALS
-    : QUEUED_POLL_INTERVALS;
-  for (let round = 0; round < intervals.length && pending.length > 0; round++) {
-    await step.sleep(`wait-${round}`, intervals[round]);
-
-    // Cap task_gets per round so one collect step stays well inside the
-    // per-invocation subrequest limit at the 1000-keyword config ceiling; a
-    // validated round also reads each task's page, so it takes fewer.
-    const cap = ctx.validateSerps
-      ? VALIDATED_TASK_GETS_PER_COLLECT
-      : TASK_GETS_PER_COLLECT;
-    const batch = pending.slice(0, cap);
-    const overflow = pending.slice(cap);
-
-    let outcome: CollectRoundOutcome;
-    try {
-      outcome = await pgStep(
-        step,
-        `collect-${round}`,
-        COLLECT_STEP_CONFIG,
-        () => collectQueuedRound(ctx, batch, saveNotFound),
-      );
-    } catch (error) {
-      console.warn(`[rank-check] ${ctx.runId} collect-${round} failed:`, error);
-      continue;
-    }
-
-    stats.queueCollected += outcome.collected;
-    stats.validated += outcome.validated;
-    stats.htmlUnavailable += outcome.htmlUnavailable;
-    stats.locationDropped += outcome.dropped.length;
-    stats.historySuspect += outcome.historySuspect;
-    pending = [...outcome.stillPending, ...overflow];
-    fallback.push(...outcome.failed);
-
-    // A dropped reading is crawled again while attempts and the window allow;
-    // otherwise it is withheld and the keyword keeps its previous position.
-    const repost =
-      round <= LAST_REPOST_ROUND
-        ? outcome.dropped.filter(
-            (task) => task.attempt < VALIDATED_CRAWLS_PER_PAIR,
-          )
-        : [];
-    withheld.push(...outcome.dropped.filter((task) => !repost.includes(task)));
-    for (let i = 0; i < repost.length; i += MAX_TASKS_PER_POST) {
-      const chunk = repost.slice(i, i + MAX_TASKS_PER_POST);
+  const repostPairs = async (label: string, tasks: QueuedTask[]) => {
+    for (let i = 0; i < tasks.length; i += MAX_TASKS_PER_POST) {
+      const chunk = tasks.slice(i, i + MAX_TASKS_PER_POST);
       const chunkIndex = Math.floor(i / MAX_TASKS_PER_POST);
       const earlier = new Map(chunk.map((task) => [pairKey(task), task]));
       const { posted, rejected } = await postQueuedChunk(
         step,
         ctx,
-        `repost-${round}-${chunkIndex}`,
+        `${label}-${chunkIndex}`,
         chunk,
       );
       pending.push(
@@ -401,6 +368,90 @@ export async function runQueuedCheck(
       stats.reposted += posted.length;
       undelivered.push(...rejected);
     }
+  };
+
+  // Poll until everything is collected or the ~15 minute window closes. A
+  // collect failure (past its retries) leaves that round's tasks pending for
+  // the next round — or the live fallback — instead of failing the run; the
+  // posted tasks are already paid for.
+  const pollRounds = async (pass: {
+    prefix: string;
+    intervals: readonly WorkflowSleepDuration[];
+    lastRepostRound: number;
+    crawlCap: number;
+  }) => {
+    const { prefix, intervals, lastRepostRound, crawlCap } = pass;
+    for (
+      let round = 0;
+      round < intervals.length && pending.length > 0;
+      round++
+    ) {
+      await step.sleep(`${prefix}wait-${round}`, intervals[round]);
+
+      // Cap task_gets per round so one collect step stays well inside the
+      // per-invocation subrequest limit at the 1000-keyword config ceiling; a
+      // validated round also reads each task's page, so it takes fewer.
+      const cap = ctx.validateSerps
+        ? VALIDATED_TASK_GETS_PER_COLLECT
+        : TASK_GETS_PER_COLLECT;
+      const batch = pending.slice(0, cap);
+      const overflow = pending.slice(cap);
+
+      let outcome: CollectRoundOutcome;
+      try {
+        outcome = await pgStep(
+          step,
+          `${prefix}collect-${round}`,
+          COLLECT_STEP_CONFIG,
+          () => collectQueuedRound(ctx, batch, saveNotFound),
+        );
+      } catch (error) {
+        console.warn(
+          `[rank-check] ${ctx.runId} ${prefix}collect-${round} failed:`,
+          error,
+        );
+        continue;
+      }
+
+      stats.queueCollected += outcome.collected;
+      stats.validated += outcome.validated;
+      stats.htmlUnavailable += outcome.htmlUnavailable;
+      stats.locationDropped += outcome.dropped.length;
+      stats.historySuspect += outcome.historySuspect;
+      pending = [...outcome.stillPending, ...overflow];
+      fallback.push(...outcome.failed);
+
+      // A dropped reading is crawled again while attempts and the window allow;
+      // otherwise it is withheld and the keyword keeps its previous position.
+      const repost =
+        round <= lastRepostRound
+          ? outcome.dropped.filter((task) => task.attempt < crawlCap)
+          : [];
+      withheld.push(
+        ...outcome.dropped.filter((task) => !repost.includes(task)),
+      );
+      await repostPairs(`${prefix}repost-${round}`, repost);
+    }
+  };
+
+  await pollRounds({
+    prefix: "",
+    intervals: ctx.validateSerps
+      ? VALIDATED_POLL_INTERVALS
+      : QUEUED_POLL_INTERVALS,
+    lastRepostRound: LAST_REPOST_ROUND,
+    crawlCap: VALIDATED_FIRST_PASS_CRAWLS,
+  });
+
+  if (ctx.validateSerps && withheld.length > 0) {
+    await step.sleep("late-pass-wait", LATE_PASS_WAIT);
+    await repostPairs("late-pass", withheld.splice(0));
+    await pollRounds({
+      prefix: "late-",
+      intervals: LATE_POLL_INTERVALS,
+      lastRepostRound: LATE_LAST_REPOST_ROUND,
+      crawlCap: VALIDATED_CRAWLS_PER_PAIR,
+    });
   }
 
   if (ctx.validateSerps) {
