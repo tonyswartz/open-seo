@@ -37,7 +37,9 @@ export function clampSerpDepth(depth: number): number {
  * instead of two. Matching is restricted to organic results and uses
  * with_subdomains, mirroring buildRankCheckResult exactly: without
  * find_targets_in, a sitelink or PAA mention could stop the crawl before the
- * domain's organic listing and record a false "not ranking".
+ * domain's organic listing and record a false "not ranking". DataForSEO cannot
+ * match a listing behind a Google goto link, so that crawl runs on; it costs
+ * the extra pages but still finds the listing.
  */
 function stopCrawlOnTarget(targetDomain: string) {
   return {
@@ -47,6 +49,15 @@ function stopCrawlOnTarget(targetDomain: string) {
     find_targets_in: ["organic"],
   };
 }
+
+// Fork: Google sends many organic links through google.com/goto, and DataForSEO
+// then reports google.com as the result's domain. The real site survives in the
+// breadcrumb, as "https://www.example.com" or "https://www.example.com › page".
+const GOOGLE_GOTO_URL = /^https?:\/\/(?:www\.)?google\.com\/goto\b/i;
+const BREADCRUMB_HOST = /^(?:https?:\/\/)?([^\s/›]+\.[^\s/›]+)/i;
+
+const isGoogleGotoUrl = (url: string | null | undefined) =>
+  GOOGLE_GOTO_URL.test(url ?? "");
 
 // Kept as a hand-written schema: the SDK's BaseSerpApiElementItem type omits
 // etv / estimated_paid_traffic_cost / backlinks_info / rank_changes, which we
@@ -83,7 +94,13 @@ const serpSnapshotItemSchema = z
       .nullable()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .transform((item) => ({
+    ...item,
+    domain: isGoogleGotoUrl(item.url)
+      ? (BREADCRUMB_HOST.exec(item.breadcrumb ?? "")?.[1] ?? item.domain)
+      : item.domain,
+  }));
 
 export type SerpLiveItem = z.infer<typeof serpSnapshotItemSchema>;
 
@@ -133,6 +150,7 @@ export interface RankCheckResult {
   keywordId: string;
   keyword: string;
   position: number | null;
+  /** Null when the target is absent, or found behind a goto link that hides its page. */
   url: string | null;
   serpFeatures: string[];
   /** Domains of the page's first ten organic results in rank order, deduplicated, lowercase, no "www.". */
@@ -159,7 +177,9 @@ function buildRankCheckResult(
     position: organicMatch
       ? (organicMatch.rank_group ?? organicMatch.rank_absolute ?? null)
       : null,
-    url: organicMatch?.url ?? null,
+    url: isGoogleGotoUrl(organicMatch?.url)
+      ? null
+      : (organicMatch?.url ?? null),
     serpFeatures: [...new Set(items.map((item) => item.type).filter(Boolean))],
     // Domains of the first ten organic results only. Deduplicating before
     // cutting at ten would reach past the first page whenever a domain

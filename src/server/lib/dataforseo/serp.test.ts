@@ -23,6 +23,28 @@ function parseDataforseoRequestBody(init: RequestInit | undefined): unknown {
   return JSON.parse(body) as unknown;
 }
 
+function stubTaskItems(items: unknown[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        status_code: 20000,
+        tasks: [
+          { id: "task-a", status_code: 20000, cost: 0, result: [{ items }] },
+        ],
+      }),
+    ),
+  );
+}
+
+const gotoListing = (rank_group: number, breadcrumb: string) => ({
+  type: "organic",
+  rank_group,
+  domain: "google.com",
+  url: "https://google.com/goto?url=CAESabc",
+  breadcrumb,
+});
+
 describe("live SERP", () => {
   // 40102 is the documented "No Search Results." code (40501 is "Invalid
   // Field."). isNoResultsTask matches on the status message, not the code, so
@@ -215,6 +237,35 @@ describe("rank check task queue", () => {
     });
   });
 
+  it("reads a listing behind a Google goto link by its breadcrumb", async () => {
+    stubTaskItems([
+      gotoListing(1, "https://other.com"),
+      gotoListing(2, "https://www.example.com › page"),
+      {
+        type: "organic",
+        rank_group: 3,
+        domain: "www.example.com",
+        url: "https://www.example.com/",
+      },
+    ]);
+
+    const outcome = await fetchRankCheckTaskResult({
+      taskId: "task-a",
+      keywordId: "kw-1",
+      keyword: "alpha",
+      targetDomain: "example.com",
+    });
+
+    expect(outcome).toMatchObject({
+      status: "completed",
+      result: {
+        position: 2,
+        url: null,
+        topDomains: ["other.com", "example.com"],
+      },
+    });
+  });
+
   it("keeps the composition to the first ten organic results when a domain repeats", async () => {
     // Ten organic results with one domain twice, then an eleventh result.
     const domains = [
@@ -230,29 +281,14 @@ describe("rank check task queue", () => {
       "a.com",
       "k.com",
     ];
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({
-        status_code: 20000,
-        tasks: [
-          {
-            id: "task-a",
-            status_code: 20000,
-            cost: 0,
-            result: [
-              {
-                items: domains.map((domain, index) => ({
-                  type: "organic",
-                  rank_group: index + 1,
-                  domain,
-                  url: `https://${domain}/`,
-                })),
-              },
-            ],
-          },
-        ],
-      }),
+    stubTaskItems(
+      domains.map((domain, index) => ({
+        type: "organic",
+        rank_group: index + 1,
+        domain,
+        url: `https://${domain}/`,
+      })),
     );
-    vi.stubGlobal("fetch", fetchMock);
 
     const outcome = await fetchRankCheckTaskResult({
       taskId: "task-a",
