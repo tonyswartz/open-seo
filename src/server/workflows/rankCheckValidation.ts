@@ -49,8 +49,9 @@ const COMPOSITION_MIN_SNAPSHOTS = 2;
 const COMPOSITION_MIN_USUAL_SITES = 3;
 
 /**
- * A pair's recent history: its best position with the page that held it, and
- * the sites that usually make up its page (null until enough are stored).
+ * A pair's recent history: its best position with the page that held it most
+ * often, and the sites that usually make up its page (null until enough are
+ * stored).
  */
 export interface PairBaseline {
   bestPosition: number | null;
@@ -93,22 +94,48 @@ function usualSitesOf(compositions: string[][]): string[] | null {
   return usual.length >= COMPOSITION_MIN_USUAL_SITES ? usual : null;
 }
 
+const normalizePageUrl = (url: string) =>
+  url
+    .toLowerCase()
+    .replace(/^https?:\/\/(www\.)?/, "")
+    .split(/[?#]/)[0]
+    .replace(/\/+$/, "");
+
+/** Pages are counted newest first, so the newest of equally common pages wins. */
+function mostCommonPage(pages: Map<string, number>): string | null {
+  let top: string | null = null;
+  let topCount = 0;
+  for (const [page, count] of pages) {
+    if (count > topCount) {
+      top = page;
+      topCount = count;
+    }
+  }
+  return top;
+}
+
 /** Rows come newest first. */
 export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
-  const best = new Map<string, { position: number; url: string | null }>();
+  // Fork: pages are counted at the best position, so one odd reading there
+  // cannot replace the page that usually holds it. Rows can have no page when
+  // a Google goto link would not resolve.
+  const best = new Map<
+    string,
+    { position: number; pages: Map<string, number> }
+  >();
   const compositions = new Map<string, string[][]>();
   for (const row of rows) {
     const key = `${row.trackingKeywordId}:${row.device}`;
     if (row.position !== null) {
       const current = best.get(key);
-      // Fork: a Google goto link that would not resolve leaves a row with no
-      // page, so an older row at the same position supplies it.
-      if (
-        !current ||
-        row.position < current.position ||
-        (row.position === current.position && current.url === null)
-      ) {
-        best.set(key, { position: row.position, url: row.url });
+      const top =
+        current && current.position <= row.position
+          ? current
+          : { position: row.position, pages: new Map<string, number>() };
+      best.set(key, top);
+      if (row.position === top.position && row.url !== null) {
+        const page = normalizePageUrl(row.url);
+        top.pages.set(page, (top.pages.get(page) ?? 0) + 1);
       }
     }
     const domains = parseTopDomains(row.topDomains);
@@ -127,19 +154,12 @@ export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
     const top = best.get(key);
     baselines.set(key, {
       bestPosition: top?.position ?? null,
-      bestUrl: top?.url ?? null,
+      bestUrl: top ? mostCommonPage(top.pages) : null,
       usualSites: usualSitesOf(compositions.get(key) ?? []),
     });
   }
   return baselines;
 }
-
-const normalizePageUrl = (url: string) =>
-  url
-    .toLowerCase()
-    .replace(/^https?:\/\/(www\.)?/, "")
-    .split(/[?#]/)[0]
-    .replace(/\/+$/, "");
 
 function samePage(a: string, b: string): boolean {
   return normalizePageUrl(a) === normalizePageUrl(b);
