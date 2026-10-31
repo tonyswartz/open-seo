@@ -637,6 +637,63 @@ describe("validated queued rank checks", () => {
     expect(stats).toMatchObject({ historySuspect: 1, withheld: 0 });
   });
 
+  it("judges a pair by its typical position, not one fluke at the top", async () => {
+    const page = "https://www.example.com/";
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(1, page),
+      historyRow(14, page),
+      historyRow(14, page),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue(
+      completedAt(15, page),
+    );
+
+    await runQueued();
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(1);
+    expect(mocks.insertSnapshots).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ position: 15 }),
+    ]);
+  });
+
+  it("stores a gain on another page once a second crawl agrees", async () => {
+    const usual = "https://www.example.com/yakima";
+    const other = "https://www.example.com/sunnyside";
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(6, usual),
+      historyRow(6, usual),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult)
+      .mockResolvedValueOnce(completedAt(2, other))
+      .mockResolvedValueOnce(completedAt(null))
+      .mockResolvedValueOnce(completedAt(3, other));
+
+    await runQueued();
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(3);
+    expect(mocks.insertSnapshots).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ position: 3, url: other }),
+    ]);
+  });
+
+  it("holds a gain on another page that no second crawl repeats", async () => {
+    const usual = "https://www.example.com/yakima";
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(6, usual),
+      historyRow(6, usual),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult)
+      .mockResolvedValueOnce(
+        completedAt(2, "https://www.example.com/sunnyside"),
+      )
+      .mockResolvedValue(completedAt(null));
+
+    const stats = await runQueued();
+
+    expect(mocks.insertSnapshots).not.toHaveBeenCalled();
+    expect(stats).toMatchObject({ withheld: 1 });
+  });
+
   it("accepts a reading at the pair's best position whatever else its page shows", async () => {
     const usual = ["a.com", "b.com", "c.com"];
     const page = "https://www.example.com/";

@@ -14,8 +14,14 @@ import type {
 // history. Used by rankCheckQueuedPath; validateCollected runs inside a step
 // body there, so it reads only its arguments.
 
+/** A reading a validated run rejected, which a later crawl can confirm. */
+type OffReading = { position: number; url: string | null };
+
 /** A queued task with the number of crawls spent on its keyword/device pair. */
-export type QueuedTask = PostedRankCheckTask & { attempt: number };
+export type QueuedTask = PostedRankCheckTask & {
+  attempt: number;
+  lastOff?: OffReading;
+};
 
 export const pairKey = (task: RankCheckTaskInput) =>
   `${task.keywordId}:${task.device}`;
@@ -35,9 +41,15 @@ const HTML_FETCH_CONCURRENCY = 5;
 // mostly gets pages that look precise and still list the national ranking),
 // but it always reads wrong against the keyword's own recent history: a pair
 // that ranked well is suddenly absent, far lower, or ranks a different page
-// below its usual one.
+// below its usual one. A surprising gain (far higher, or another page at or
+// above the usual position) is not rejected outright, since a new page can
+// really take over: it needs a second crawl of the run to agree.
 const HISTORY_DROP_TOLERANCE = 8;
 const HISTORY_RANKED_CEILING = 20;
+// Rows this close to the typical position count toward the usual page.
+const USUAL_PAGE_SPREAD = 2;
+// Two crawls agree on one page within this many positions.
+const AGREEMENT_SPREAD = 2;
 
 // The third check: the page's composition against the pair's usual sites
 // (Nozzle's "usual sites", Advanced Web Ranking's SERP similarity). It is the
@@ -49,13 +61,13 @@ const COMPOSITION_MIN_SNAPSHOTS = 2;
 const COMPOSITION_MIN_USUAL_SITES = 3;
 
 /**
- * A pair's recent history: its best position with the page that held it most
- * often, and the sites that usually make up its page (null until enough are
+ * A pair's recent history: its typical position with the page that usually
+ * holds it, and the sites that usually make up its page (null until enough are
  * stored).
  */
 export interface PairBaseline {
-  bestPosition: number | null;
-  bestUrl: string | null;
+  typicalPosition: number | null;
+  usualUrl: string | null;
   usualSites: string[] | null;
 }
 
@@ -101,42 +113,45 @@ const normalizePageUrl = (url: string) =>
     .split(/[?#]/)[0]
     .replace(/\/+$/, "");
 
-/** Pages are counted newest first, so the newest of equally common pages wins. */
-function mostCommonPage(pages: Map<string, number>): string | null {
-  let top: string | null = null;
-  let topCount = 0;
-  for (const [page, count] of pages) {
-    if (count > topCount) {
-      top = page;
-      topCount = count;
+type PairReading = { position: number; url: string | null };
+
+/** The lower median, so one fluke in either direction cannot move it. */
+function typicalPositionOf(readings: PairReading[]): number | null {
+  const positions = readings.map((reading) => reading.position);
+  positions.sort((a, b) => a - b);
+  return positions[Math.floor((positions.length - 1) / 2)] ?? null;
+}
+
+/** The page most often near the typical position; readings come newest first, so the newest wins a tie. */
+function usualUrlOf(readings: PairReading[], typical: number): string | null {
+  const counts = new Map<string, number>();
+  for (const { position, url } of readings) {
+    if (url !== null && Math.abs(position - typical) <= USUAL_PAGE_SPREAD) {
+      const page = normalizePageUrl(url);
+      counts.set(page, (counts.get(page) ?? 0) + 1);
     }
   }
-  return top;
+  let usual: string | null = null;
+  let usualCount = 0;
+  for (const [page, count] of counts) {
+    if (count > usualCount) {
+      usual = page;
+      usualCount = count;
+    }
+  }
+  return usual;
 }
 
 /** Rows come newest first. */
 export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
-  // Fork: pages are counted at the best position, so one odd reading there
-  // cannot replace the page that usually holds it. Rows can have no page when
-  // a Google goto link would not resolve.
-  const best = new Map<
-    string,
-    { position: number; pages: Map<string, number> }
-  >();
+  const readings = new Map<string, PairReading[]>();
   const compositions = new Map<string, string[][]>();
   for (const row of rows) {
     const key = `${row.trackingKeywordId}:${row.device}`;
     if (row.position !== null) {
-      const current = best.get(key);
-      const top =
-        current && current.position <= row.position
-          ? current
-          : { position: row.position, pages: new Map<string, number>() };
-      best.set(key, top);
-      if (row.position === top.position && row.url !== null) {
-        const page = normalizePageUrl(row.url);
-        top.pages.set(page, (top.pages.get(page) ?? 0) + 1);
-      }
+      const list = readings.get(key) ?? [];
+      list.push({ position: row.position, url: row.url });
+      readings.set(key, list);
     }
     const domains = parseTopDomains(row.topDomains);
     // Fork: rows stored before goto links were read list google.com in place of
@@ -150,11 +165,13 @@ export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
     }
   }
   const baselines = new Map<string, PairBaseline>();
-  for (const key of new Set([...best.keys(), ...compositions.keys()])) {
-    const top = best.get(key);
+  for (const key of new Set([...readings.keys(), ...compositions.keys()])) {
+    const pair = readings.get(key) ?? [];
+    const typicalPosition = typicalPositionOf(pair);
     baselines.set(key, {
-      bestPosition: top?.position ?? null,
-      bestUrl: top ? mostCommonPage(top.pages) : null,
+      typicalPosition,
+      usualUrl:
+        typicalPosition === null ? null : usualUrlOf(pair, typicalPosition),
       usualSites: usualSitesOf(compositions.get(key) ?? []),
     });
   }
@@ -165,14 +182,36 @@ function samePage(a: string, b: string): boolean {
   return normalizePageUrl(a) === normalizePageUrl(b);
 }
 
-function offPosition(result: RankCheckResult, baseline: PairBaseline): boolean {
-  const best = baseline.bestPosition;
-  if (best === null || best > HISTORY_RANKED_CEILING) return false;
-  if (result.position === null) return true;
-  if (result.position > best + HISTORY_DROP_TOLERANCE) return true;
+function agrees(earlier: OffReading | undefined, result: RankCheckResult) {
+  if (!earlier || result.position === null) return false;
+  if (Math.abs(earlier.position - result.position) > AGREEMENT_SPREAD) {
+    return false;
+  }
+  if (earlier.url === null || result.url === null) {
+    return earlier.url === result.url;
+  }
+  return samePage(earlier.url, result.url);
+}
+
+function offPosition(
+  result: RankCheckResult,
+  baseline: PairBaseline,
+  lastOff: OffReading | undefined,
+): boolean {
+  const typical = baseline.typicalPosition;
+  if (typical === null) return false;
+  const ranked = typical <= HISTORY_RANKED_CEILING;
+  if (result.position === null) return ranked;
+  if (ranked && result.position > typical + HISTORY_DROP_TOLERANCE) return true;
   // Fork: a Google goto link that would not resolve leaves no page to compare.
-  if (result.url === null || baseline.bestUrl === null) return false;
-  return result.position > best && !samePage(result.url, baseline.bestUrl);
+  const otherPage =
+    result.url !== null &&
+    baseline.usualUrl !== null &&
+    !samePage(result.url, baseline.usualUrl);
+  if (result.position > typical) return ranked && otherPage;
+  const surprising =
+    otherPage || result.position < typical - HISTORY_DROP_TOLERANCE;
+  return surprising && !agrees(lastOff, result);
 }
 
 function offComposition(
@@ -190,14 +229,15 @@ function offComposition(
 function offHistory(
   result: RankCheckResult,
   baseline: PairBaseline | undefined,
+  lastOff: OffReading | undefined,
 ): "position" | "composition" | null {
   if (!baseline) return null;
-  if (offPosition(result, baseline)) return "position";
-  // Fork: a reading at the pair's best is no false drop, and usual sites learned
-  // from altered pages would otherwise keep rejecting the real page.
-  const best = baseline.bestPosition;
-  if (result.position !== null && best !== null && result.position <= best) {
-    return null;
+  if (offPosition(result, baseline, lastOff)) return "position";
+  // Fork: a reading at the pair's usual position is no false drop, and usual
+  // sites learned from altered pages would otherwise reject the real page.
+  const typical = baseline.typicalPosition;
+  if (result.position !== null && typical !== null) {
+    if (result.position <= typical) return null;
   }
   if (offComposition(result, baseline)) return "composition";
   return null;
@@ -247,14 +287,21 @@ export async function validateCollected(
       }
       const failedCheck =
         outcome === "localized"
-          ? offHistory(result, baselines.get(pairKey(task)))
+          ? offHistory(result, baselines.get(pairKey(task)), task.lastOff)
           : null;
       if (failedCheck !== null) {
         historySuspect++;
         console.warn(
           `[rank-check] ${ctx.runId} task ${task.taskId} reading is off the pair's recent history (${failedCheck}, attempt ${task.attempt}) keyword="${task.keyword}" device=${task.device} position=${result.position} url=${result.url}`,
         );
-        dropped.push(task);
+        dropped.push(
+          result.position === null
+            ? task
+            : {
+                ...task,
+                lastOff: { position: result.position, url: result.url },
+              },
+        );
         return;
       }
       if (outcome === "unread") {
