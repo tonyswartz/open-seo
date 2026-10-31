@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- mirrors serp.ts: live, rank-check and Maps queue calls */
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/lib/runtime-env", () => ({
@@ -23,16 +24,26 @@ function parseDataforseoRequestBody(init: RequestInit | undefined): unknown {
   return JSON.parse(body) as unknown;
 }
 
-function stubTaskItems(items: unknown[]) {
+function stubTaskItems(items: unknown[], gotoLocation = "") {
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({
-        status_code: 20000,
-        tasks: [
-          { id: "task-a", status_code: 20000, cost: 0, result: [{ items }] },
-        ],
-      }),
+    vi.fn<typeof fetch>(async (input) =>
+      input instanceof URL && input.hostname === "www.google.com"
+        ? new Response(null, {
+            status: 302,
+            headers: { location: gotoLocation },
+          })
+        : Response.json({
+            status_code: 20000,
+            tasks: [
+              {
+                id: "task-a",
+                status_code: 20000,
+                cost: 0,
+                result: [{ items }],
+              },
+            ],
+          }),
     ),
   );
 }
@@ -238,16 +249,19 @@ describe("rank check task queue", () => {
   });
 
   it("reads a listing behind a Google goto link by its breadcrumb", async () => {
-    stubTaskItems([
-      gotoListing(1, "https://other.com"),
-      gotoListing(2, "https://www.example.com › page"),
-      {
-        type: "organic",
-        rank_group: 3,
-        domain: "www.example.com",
-        url: "https://www.example.com/",
-      },
-    ]);
+    stubTaskItems(
+      [
+        gotoListing(1, "https://other.com"),
+        gotoListing(2, "https://www.example.com › page"),
+        {
+          type: "organic",
+          rank_group: 3,
+          domain: "www.example.com",
+          url: "https://www.example.com/",
+        },
+      ],
+      "https://www.example.com/page",
+    );
 
     const outcome = await fetchRankCheckTaskResult({
       taskId: "task-a",
@@ -260,9 +274,28 @@ describe("rank check task queue", () => {
       status: "completed",
       result: {
         position: 2,
-        url: null,
+        url: "https://www.example.com/page",
         topDomains: ["other.com", "example.com"],
       },
+    });
+  });
+
+  it("leaves the page unknown when a goto link does not lead to the target", async () => {
+    stubTaskItems(
+      [gotoListing(1, "https://www.example.com")],
+      "https://www.google.com/sorry/index",
+    );
+
+    const outcome = await fetchRankCheckTaskResult({
+      taskId: "task-a",
+      keywordId: "kw-1",
+      keyword: "alpha",
+      targetDomain: "example.com",
+    });
+
+    expect(outcome).toMatchObject({
+      status: "completed",
+      result: { position: 1, url: null },
     });
   });
 

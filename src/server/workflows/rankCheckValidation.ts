@@ -101,8 +101,8 @@ export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
     const key = `${row.trackingKeywordId}:${row.device}`;
     if (row.position !== null) {
       const current = best.get(key);
-      // Fork: a listing behind a Google goto link has no page, so an older row
-      // at the same position supplies it.
+      // Fork: a Google goto link that would not resolve leaves a row with no
+      // page, so an older row at the same position supplies it.
       if (
         !current ||
         row.position < current.position ||
@@ -148,7 +148,7 @@ function offPosition(result: RankCheckResult, baseline: PairBaseline): boolean {
   if (best === null || best > HISTORY_RANKED_CEILING) return false;
   if (result.position === null) return true;
   if (result.position > best + HISTORY_DROP_TOLERANCE) return true;
-  // Fork: a listing behind a Google goto link has no page to compare.
+  // Fork: a Google goto link that would not resolve leaves no page to compare.
   if (result.url === null || baseline.bestUrl === null) return false;
   return result.position > best && !samePage(result.url, baseline.bestUrl);
 }
