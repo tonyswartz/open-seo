@@ -578,6 +578,23 @@ describe("validated queued rank checks", () => {
     ]);
   });
 
+  it("keeps the usual page when one odd reading also holds the best position", async () => {
+    const wrongPage = "https://www.example.com/small-business-lawyer";
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(1, wrongPage),
+      historyRow(1, "https://www.example.com/dui"),
+      historyRow(1, "https://www.example.com/dui"),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue(
+      completedAt(4, wrongPage),
+    );
+
+    const stats = await runQueued();
+
+    expect(mocks.insertSnapshots).not.toHaveBeenCalled();
+    expect(stats).toMatchObject({ withheld: 1 });
+  });
+
   it("takes the pair's usual page from an older row when its newest best has none", async () => {
     mocks.getRecentSnapshotsForConfig.mockResolvedValue([
       historyRow(1, null),
