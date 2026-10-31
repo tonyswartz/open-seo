@@ -217,7 +217,8 @@ async function buildRankCheckResult(
         items
           .filter((item) => item.type === "organic")
           .slice(0, TOP_DOMAINS_PER_RESULT)
-          .filter((item) => item.domain)
+          // A video or forum card's goto link has no site in its breadcrumb.
+          .filter((item) => item.domain && item.domain !== "google.com")
           .map((item) =>
             (item.domain ?? "").toLowerCase().replace(/^www\./, ""),
           ),

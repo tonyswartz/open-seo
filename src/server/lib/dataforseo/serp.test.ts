@@ -253,9 +253,10 @@ describe("rank check task queue", () => {
       [
         gotoListing(1, "https://other.com"),
         gotoListing(2, "https://www.example.com › page"),
+        gotoListing(3, "30+ answers"),
         {
           type: "organic",
-          rank_group: 3,
+          rank_group: 4,
           domain: "www.example.com",
           url: "https://www.example.com/",
         },

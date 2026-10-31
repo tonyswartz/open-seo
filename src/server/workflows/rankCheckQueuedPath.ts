@@ -381,9 +381,7 @@ export async function runQueuedCheck(
     for (let i = 0; i < repost.length; i += MAX_TASKS_PER_POST) {
       const chunk = repost.slice(i, i + MAX_TASKS_PER_POST);
       const chunkIndex = Math.floor(i / MAX_TASKS_PER_POST);
-      const attempts = new Map(
-        chunk.map((task) => [pairKey(task), task.attempt]),
-      );
+      const earlier = new Map(chunk.map((task) => [pairKey(task), task]));
       const { posted, rejected } = await postQueuedChunk(
         step,
         ctx,
@@ -391,10 +389,14 @@ export async function runQueuedCheck(
         chunk,
       );
       pending.push(
-        ...posted.map((task) => ({
-          ...task,
-          attempt: (attempts.get(pairKey(task)) ?? 1) + 1,
-        })),
+        ...posted.map((task) => {
+          const previous = earlier.get(pairKey(task));
+          return {
+            ...task,
+            attempt: (previous?.attempt ?? 1) + 1,
+            lastOff: previous?.lastOff,
+          };
+        }),
       );
       stats.reposted += posted.length;
       undelivered.push(...rejected);
