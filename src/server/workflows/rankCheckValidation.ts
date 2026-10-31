@@ -112,7 +112,9 @@ export function buildBaselines(rows: HistoryRow[]): Map<string, PairBaseline> {
       }
     }
     const domains = parseTopDomains(row.topDomains);
-    if (domains.length > 0) {
+    // Fork: rows stored before goto links were read list google.com in place of
+    // the real sites, so they say nothing about the page.
+    if (domains.length > 0 && !domains.includes("google.com")) {
       const list = compositions.get(key) ?? [];
       if (list.length < COMPOSITION_SNAPSHOTS) {
         list.push(domains);
@@ -171,6 +173,12 @@ function offHistory(
 ): "position" | "composition" | null {
   if (!baseline) return null;
   if (offPosition(result, baseline)) return "position";
+  // Fork: a reading at the pair's best is no false drop, and usual sites learned
+  // from altered pages would otherwise keep rejecting the real page.
+  const best = baseline.bestPosition;
+  if (result.position !== null && best !== null && result.position <= best) {
+    return null;
+  }
   if (offComposition(result, baseline)) return "composition";
   return null;
 }

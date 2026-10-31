@@ -620,6 +620,39 @@ describe("validated queued rank checks", () => {
     expect(stats).toMatchObject({ historySuspect: 1, withheld: 0 });
   });
 
+  it("accepts a reading at the pair's best position whatever else its page shows", async () => {
+    const usual = ["a.com", "b.com", "c.com"];
+    const page = "https://www.example.com/";
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(1, page, usual),
+      historyRow(1, page, usual),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue(
+      completedAt(1, page, ["x.com", "y.com", "z.com"]),
+    );
+
+    const stats = await runQueued();
+
+    expect(mocks.insertSnapshots).toHaveBeenCalledTimes(1);
+    expect(stats).toMatchObject({ historySuspect: 0 });
+  });
+
+  it("does not judge composition from rows that list google.com for hidden results", async () => {
+    const stored = ["google.com", "a.com", "b.com", "c.com"];
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(null, null, stored),
+      historyRow(null, null, stored),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue(
+      completedAt(null, null, ["x.com", "y.com", "z.com"]),
+    );
+
+    const stats = await runQueued();
+
+    expect(mocks.insertSnapshots).toHaveBeenCalledTimes(1);
+    expect(stats).toMatchObject({ historySuspect: 0 });
+  });
+
   it("does not judge composition from a single stored page", async () => {
     mocks.getRecentSnapshotsForConfig.mockResolvedValue([
       historyRow(null, null, ["a.com", "b.com", "c.com", "d.com"]),
