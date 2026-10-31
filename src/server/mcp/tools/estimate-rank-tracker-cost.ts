@@ -32,7 +32,7 @@ const inputSchema = {
     .boolean()
     .optional()
     .describe(
-      "Price a validated check (run_rank_tracker with validated: true): queued pricing at its worst case of four crawls per SERP check, which is the figure to approve as maxCostCredits. Typical spend is lower.",
+      "Price a validated check (run_rank_tracker with validated: true): queued pricing at its worst case of six crawls per SERP check, which is the figure to approve as maxCostCredits. Typical spend is lower.",
     ),
 } as const;
 
@@ -43,7 +43,7 @@ export const estimateRankTrackerCostTool = {
   config: {
     title: "Estimate rank tracker cost",
     description:
-      "Estimate rank tracker cost without spending credits or starting a check. Each estimate is the most a check can cost. The live estimate covers one explicit run_rank_tracker check and includes up to two queued retries of every keyword/device check, which run only for checks that error or read as lost, so most checks cost less. Pass validated: true for the worst-case figure of a validated check, priced at four crawls per SERP check in place of those retries. For a scheduled tracker, the response also includes the queued per-check and approximate monthly recurring cost. Pass additionalKeywords before adding keywords to project the post-add cost.",
+      "Estimate rank tracker cost without spending credits or starting a check. Each estimate is the most a check can cost. The live estimate covers one explicit run_rank_tracker check and includes up to two queued retries of every keyword/device check, which run only for checks that error or read as lost, so most checks cost less. Pass validated: true for the worst-case figure of a validated check, priced at six crawls per SERP check in place of those retries. For a scheduled tracker, the response also includes the queued per-check and approximate monthly recurring cost. Pass additionalKeywords before adding keywords to project the post-add cost.",
     inputSchema,
     outputSchema: z
       .object({

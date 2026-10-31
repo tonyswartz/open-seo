@@ -477,9 +477,9 @@ describe("validated queued rank checks", () => {
 
     const stats = await runQueued();
 
-    // One crawl plus three more, then the keyword keeps its previous position;
-    // finalize writes the held count into the run from these stats.
-    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(4);
+    // Four crawls and two on the late pass, then the keyword keeps its previous
+    // position; finalize writes the held count into the run from these stats.
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(6);
     expect(mocks.insertSnapshots).not.toHaveBeenCalled();
     expect(mocks.setRunErrorIfEmpty).not.toHaveBeenCalled();
     expect(stats).toMatchObject({ withheld: 1, undelivered: 0 });
@@ -559,9 +559,9 @@ describe("validated queued rank checks", () => {
 
     const stats = await runQueued();
 
-    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(4);
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(6);
     expect(mocks.insertSnapshots).not.toHaveBeenCalled();
-    expect(stats).toMatchObject({ historySuspect: 4, withheld: 1 });
+    expect(stats).toMatchObject({ historySuspect: 6, withheld: 1 });
   });
 
   it("stores a listing with no page below the pair's best position", async () => {
@@ -776,7 +776,27 @@ describe("validated queued rank checks", () => {
     expect(stats).toMatchObject({ reposted: 1, withheld: 0 });
   });
 
-  it("stops reposting once the window can no longer collect a new crawl", async () => {
+  it("comes back after a pause for a reading the first pass would hold", async () => {
+    mocks.getRecentSnapshotsForConfig.mockResolvedValue([
+      historyRow(1, "https://www.example.com/"),
+    ]);
+    vi.mocked(fetchRankCheckTaskResult)
+      .mockResolvedValueOnce(completedAt(null))
+      .mockResolvedValueOnce(completedAt(null))
+      .mockResolvedValueOnce(completedAt(null))
+      .mockResolvedValueOnce(completedAt(null))
+      .mockResolvedValueOnce(completedAt(1, "https://www.example.com/"));
+
+    const stats = await runQueued();
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(5);
+    expect(mocks.insertSnapshots).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ position: 1 }),
+    ]);
+    expect(stats).toMatchObject({ reposted: 4, withheld: 0 });
+  });
+
+  it("stops first-pass reposts once the window can no longer collect a new crawl", async () => {
     vi.mocked(fetchRankCheckTaskResult)
       .mockResolvedValueOnce({ status: "pending" })
       .mockResolvedValueOnce({ status: "pending" })
@@ -789,8 +809,9 @@ describe("validated queued rank checks", () => {
 
     const stats = await runQueued();
 
-    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(1);
-    expect(stats).toMatchObject({ withheld: 1, reposted: 0 });
+    // The first crawl arrives too late to repost; only the late pass follows.
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(4);
+    expect(stats).toMatchObject({ withheld: 1, reposted: 3 });
   });
 
   it("does not read pages on a plain queued check", async () => {

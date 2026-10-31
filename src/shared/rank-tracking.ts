@@ -35,7 +35,7 @@ export type RankCheckMethod = "live" | "queued";
  * the reading at its previous position (see rankCheckQueuedPath). Validated
  * runs are estimated and approved at this worst case.
  */
-export const VALIDATED_CRAWLS_PER_PAIR = 4;
+export const VALIDATED_CRAWLS_PER_PAIR = 6;
 
 /**
  * Scheduled checks and validated manual checks go through DataForSEO's task
