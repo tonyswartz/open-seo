@@ -56,8 +56,34 @@ function stopCrawlOnTarget(targetDomain: string) {
 const GOOGLE_GOTO_URL = /^https?:\/\/(?:www\.)?google\.com\/goto\b/i;
 const BREADCRUMB_HOST = /^(?:https?:\/\/)?([^\s/›]+\.[^\s/›]+)/i;
 
+const GOOGLE_GOTO_TIMEOUT_MS = 5_000;
+
 const isGoogleGotoUrl = (url: string | null | undefined) =>
   GOOGLE_GOTO_URL.test(url ?? "");
+
+const isOnDomain = (host: string, target: string) =>
+  host === target || host.endsWith(`.${target}`);
+
+// Fork: the page behind a goto link is only in its redirect. Read that without
+// following it, and accept only the target's own site: Google can answer with a
+// block page instead, and then the page stays unknown.
+async function resolveGoogleGotoUrl(url: string, target: string) {
+  try {
+    const request = new URL(url);
+    request.hostname = "www.google.com";
+    const response = await fetch(request, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(GOOGLE_GOTO_TIMEOUT_MS),
+    });
+    await response.body?.cancel();
+    const location = response.headers.get("location");
+    if (!location) return null;
+    const host = new URL(location).hostname.toLowerCase();
+    return isOnDomain(host, target) ? location : null;
+  } catch {
+    return null;
+  }
+}
 
 // Kept as a hand-written schema: the SDK's BaseSerpApiElementItem type omits
 // etv / estimated_paid_traffic_cost / backlinks_info / rank_changes, which we
@@ -150,23 +176,23 @@ export interface RankCheckResult {
   keywordId: string;
   keyword: string;
   position: number | null;
-  /** Null when the target is absent, or found behind a goto link that hides its page. */
+  /** Null when the target is absent, or behind a goto link Google would not resolve. */
   url: string | null;
   serpFeatures: string[];
   /** Domains of the page's first ten organic results in rank order, deduplicated, lowercase, no "www.". */
   topDomains: string[];
 }
 
-function buildRankCheckResult(
+async function buildRankCheckResult(
   input: { keywordId: string; keyword: string; targetDomain: string },
   items: SerpLiveItem[],
-): RankCheckResult {
+): Promise<RankCheckResult> {
   const target = input.targetDomain.toLowerCase();
   const organicMatch = items.find((item) => {
     if (item.type !== "organic" || item.domain == null) return false;
-    const domain = item.domain.toLowerCase();
-    return domain === target || domain.endsWith(`.${target}`);
+    return isOnDomain(item.domain.toLowerCase(), target);
   });
+  const url = organicMatch?.url ?? null;
 
   return {
     keywordId: input.keywordId,
@@ -177,9 +203,10 @@ function buildRankCheckResult(
     position: organicMatch
       ? (organicMatch.rank_group ?? organicMatch.rank_absolute ?? null)
       : null,
-    url: isGoogleGotoUrl(organicMatch?.url)
-      ? null
-      : (organicMatch?.url ?? null),
+    url:
+      url && isGoogleGotoUrl(url)
+        ? await resolveGoogleGotoUrl(url, target)
+        : url,
     serpFeatures: [...new Set(items.map((item) => item.type).filter(Boolean))],
     // Domains of the first ten organic results only. Deduplicating before
     // cutting at ten would reach past the first page whenever a domain
@@ -238,7 +265,7 @@ export async function fetchRankCheckSerp(input: {
   );
 
   return {
-    data: buildRankCheckResult(input, items),
+    data: await buildRankCheckResult(input, items),
     billing: buildTaskBilling(task),
   };
 }
@@ -378,7 +405,7 @@ export async function fetchRankCheckTaskResult(input: {
     }
     return {
       status: "completed",
-      result: buildRankCheckResult(input, []),
+      result: await buildRankCheckResult(input, []),
     };
   }
 
@@ -387,7 +414,10 @@ export async function fetchRankCheckTaskResult(input: {
     task,
     serpSnapshotItemSchema,
   );
-  return { status: "completed", result: buildRankCheckResult(input, items) };
+  return {
+    status: "completed",
+    result: await buildRankCheckResult(input, items),
+  };
 }
 
 /** One page of a stored SERP crawl, as returned by task_get/html. */
