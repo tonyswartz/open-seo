@@ -12,7 +12,7 @@ import type {
   TurnContext,
 } from "@cloudflare/think";
 import { clearChatTerminal } from "agents/chat";
-import { createCompactFunction } from "agents/experimental/memory/utils";
+import { createCompactFunction } from "agents/sessions";
 import { generateText, type UIMessage } from "ai";
 import { z } from "zod";
 import { eq } from "drizzle-orm";

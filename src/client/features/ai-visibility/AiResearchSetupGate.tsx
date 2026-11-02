@@ -28,8 +28,8 @@ import {
 } from "./shared";
 
 /**
- * AI visibility needs research keywords. A project with a website but no
- * keywords confirms the spend here, then the server runs setup once: website
+ * AI visibility needs research keywords or a tracker. A project with a website
+ * but neither confirms the spend here, then the server runs setup once: website
  * research and the onboarding competitor review when the overview or
  * competitors are missing, otherwise one keyword and prompt generation. The
  * run lives on the server, so leaving or reloading the page finds it again.

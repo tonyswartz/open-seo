@@ -26,6 +26,7 @@ import {
 import { requestWithPublicOrigin } from "@/server/mcp/public-origin";
 import { MCP_ROUTE } from "@/server/mcp/context";
 import { withPgClient } from "@/db";
+import { withDataforseoSlots } from "@/server/lib/dataforseo/request-slots";
 import {
   AUTUMN_WEBHOOK_PATH,
   handleAutumnWebhookRequest,
@@ -145,7 +146,10 @@ function fetch(
 ): Promise<Response> {
   // Scope a per-request Postgres client (no-op in D1 mode). The client isn't
   // closed here — the Workers↔Hyperdrive socket is reclaimed at invocation end.
-  return withPgClient(() => Promise.resolve(handleFetch(request, env, ctx)));
+  // The DataForSEO cap is per request too, matching the connection limit.
+  return withPgClient(() =>
+    withDataforseoSlots(() => Promise.resolve(handleFetch(request, env, ctx))),
+  );
 }
 
 // AUTH_MODE=everyapp: OpenSEO is private behind an Every App gateway, which

@@ -311,6 +311,7 @@ export const AiVisibilityRepository = {
           .select({
             runId: aiObservations.runId,
             status: aiObservations.status,
+            error: aiObservations.error,
           })
           .from(aiObservations)
           .where(inArray(aiObservations.runId, runIds))
@@ -324,6 +325,19 @@ export const AiVisibilityRepository = {
           and(
             eq(aiObservations.runId, runId),
             eq(aiObservations.status, "pending"),
+          ),
+        )
+    ).map((row) => row.id),
+  listFailedObservationIds: async (runId: string, error: string) =>
+    (
+      await db
+        .select({ id: aiObservations.id })
+        .from(aiObservations)
+        .where(
+          and(
+            eq(aiObservations.runId, runId),
+            eq(aiObservations.status, "failed"),
+            eq(aiObservations.error, error),
           ),
         )
     ).map((row) => row.id),

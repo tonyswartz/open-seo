@@ -42,7 +42,7 @@ const PROMPT_RESPONSE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Hard cap on response length. Set to the DataForSEO per-call maximum because
- * reasoning models (gpt-5, gemini-2.5-pro) count hidden chain-of-thought
+ * reasoning models (gpt-5, gemini) count hidden chain-of-thought
  * tokens against this budget — at 1024 ChatGPT regularly burns the whole
  * budget on reasoning and returns a near-empty visible message.
  */

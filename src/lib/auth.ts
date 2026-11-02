@@ -38,7 +38,7 @@ import {
   productUpdatesOnByDefault,
   requestPrivacyChoices,
 } from "@/shared/privacy-choices";
-import { markOnboardingMilestone } from "@/server/email/onboarding-drip";
+import { markMcpConnected } from "@/server/features/activation/mcpActivation";
 import {
   sendHostedPasswordResetEmail,
   sendHostedVerificationEmail,
@@ -57,7 +57,11 @@ const hostedBaseUrlSchema = z
     );
   }, "BETTER_AUTH_URL must use https or a loopback host");
 
-const createdApiKeySchema = z.object({ referenceId: z.string() });
+const createdApiKeySchema = z.object({
+  referenceId: z.string(),
+  // Bound by the api-key/create before hook.
+  metadata: z.looseObject({ organizationId: z.string().min(1) }),
+});
 
 function createAuth() {
   // Modes with their own accounts need the real configured URL (cookies,
@@ -295,14 +299,14 @@ function createAuth() {
         if (ctx.path !== "/api-key/create") return;
         const created = createdApiKeySchema.safeParse(ctx.context.returned);
         if (!created.success) return;
-        const user = await AuthRepository.getHostedUser(
-          created.data.referenceId,
-        );
+        const { referenceId, metadata } = created.data;
+        const user = await AuthRepository.getHostedUser(referenceId);
         if (!user) return;
-        await markOnboardingMilestone(
-          { userId: user.id, userEmail: user.email },
-          "mcpConnected",
-        );
+        await markMcpConnected({
+          userId: user.id,
+          userEmail: user.email,
+          organizationId: metadata.organizationId,
+        });
       }),
     },
     databaseHooks: {

@@ -92,7 +92,7 @@ export const runRankTrackerTool = {
     return mcpResponse({
       text: args.validated
         ? `Validated rank check ${result.runId} started for tracker ${args.trackerId}. It runs through the task queue and takes 5 to 25 minutes: poll get_rank_tracker until lastCheckedAt advances. Readings that fail the page or history check are crawled again and otherwise held at their previous position; get_rank_tracker's latest-run line reports how many were held.`
-        : `Rank check ${result.runId} started for tracker ${args.trackerId}. Poll get_rank_tracker until lastCheckedAt advances, then read the updated positions.`,
+        : `Rank check ${result.runId} started for tracker ${args.trackerId}. It retries keywords that error or come back missing, so it can take up to an hour. Poll get_rank_tracker until lastCheckedAt advances, then read the updated positions.`,
       meta: buildProjectMeta(context, args.projectId, trackerPath),
       structuredContent: {
         trackerId: args.trackerId,
