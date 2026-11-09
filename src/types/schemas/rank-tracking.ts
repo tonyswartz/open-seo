@@ -34,9 +34,9 @@ export interface RankTrackingDeviceResult {
   rankingUrl: string | null;
   serpFeatures: string[];
   /**
-   * When the reading shown was taken. Older than the latest run when that run
-   * wrote no reading for this keyword: its check failed, or a validated run
-   * held it.
+   * When the reading shown was taken; null before the first result. Older
+   * than the latest run when that run wrote no reading for this keyword: its
+   * check failed, or a validated run held it.
    */
   checkedAt: string | null;
 }

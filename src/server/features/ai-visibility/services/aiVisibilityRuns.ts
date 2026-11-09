@@ -14,7 +14,7 @@ import {
 } from "@/server/billing/subscription";
 import { AppError } from "@/server/lib/errors";
 import { sendCreditsExhaustedEvent } from "@/server/email/onboarding-drip";
-import type { AiRun } from "@/shared/ai-visibility";
+import { ownBrandName, type AiRun } from "@/shared/ai-visibility";
 import type { RunAiCheckInput } from "@/types/schemas/ai-visibility";
 import { requireConfiguration } from "./aiVisibilityMutation";
 import { aiPromptIsBranded } from "./aiVisibilityMatching";
@@ -22,18 +22,13 @@ import { aiRunView } from "./aiVisibilityResults";
 import { aiCostForAnswers } from "./aiVisibilityCost";
 import { hasDataforseoAccess } from "@/server/lib/provider-access";
 import {
+  isWorkflowActive,
+  readWorkflowStatus,
   startWorkflow,
   STUCK_RUN_AFTER_MS,
   terminateStuckWorkflow,
 } from "@/server/lib/startWorkflow";
 
-const ACTIVE_WORKFLOW_STATUSES = new Set([
-  "queued",
-  "running",
-  "waiting",
-  "waitingForPause",
-  "paused",
-]);
 const STARTUP_GRACE_MS = 60_000;
 
 /**
@@ -43,17 +38,16 @@ const STARTUP_GRACE_MS = 60_000;
  */
 async function staleRunReason(run: RunRow): Promise<string | null> {
   if (run.status !== "queued" && run.status !== "running") return null;
-  const status = await env.AI_VISIBILITY_WORKFLOW.get(run.id)
-    .then((instance) => instance.status())
-    .catch(() => null);
+  const status = await readWorkflowStatus(env.AI_VISIBILITY_WORKFLOW, run.id);
   const ageMs = Date.now() - Date.parse(run.createdAt);
-  if (status && ACTIVE_WORKFLOW_STATUSES.has(status.status)) {
+  // A failed lookup says nothing about the workflow: treat it as still active.
+  if (status === null || (status !== "missing" && isWorkflowActive(status))) {
     if (ageMs < STUCK_RUN_AFTER_MS) return null;
-    console.warn(`[ai-visibility] ${run.id} workflow stuck (${status.status})`);
+    console.warn(`[ai-visibility] ${run.id} workflow stuck`);
     return AI_ANSWER_FAILURES.stopped;
   }
   if (ageMs < STARTUP_GRACE_MS) return null;
-  if (!status) return AI_ANSWER_FAILURES.stoppedBeforeStart;
+  if (status === "missing") return AI_ANSWER_FAILURES.stoppedBeforeStart;
   console.warn(`[ai-visibility] ${run.id} workflow stopped (${status.status})`);
   return AI_ANSWER_FAILURES.stopped;
 }
@@ -63,7 +57,7 @@ export async function failAiRun(runId: string, error: string) {
   const run = await repo.getRunInternal(runId);
   if (!run || (run.status !== "queued" && run.status !== "running")) return;
   await repo.failPendingObservations(runId, error);
-  await repo.updateRun(runId, {
+  await repo.updateActiveRun(runId, {
     status: "failed",
     completedAt: new Date().toISOString(),
   });
@@ -133,7 +127,7 @@ export async function startRun(
       );
     }
   }
-  const own = { name: project.name, domain: project.domain };
+  const own = { name: ownBrandName(project), domain: project.domain };
   // Two attempts: once normally, once after failing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
     const id = crypto.randomUUID();

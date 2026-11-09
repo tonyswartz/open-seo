@@ -40,6 +40,7 @@ import {
   getActiveRunForConfig,
   insertSnapshots,
   upsertSnapshots,
+  updateSnapshotUrls,
   deleteNotFoundSnapshots,
   getSnapshotsForRun,
 } from "./runQueries";
@@ -350,12 +351,12 @@ async function getConfigSummaries(projectId: string) {
     .groupBy(rankCheckRuns.configId)
     .as("latestStarted");
 
-  // Join back to get status + completedAt for each config's latest run
+  // Join back to get completedAt + errorMessage for each config's latest run
   const latestRuns = await db
     .select({
       configId: rankCheckRuns.configId,
-      status: rankCheckRuns.status,
       completedAt: rankCheckRuns.completedAt,
+      errorMessage: rankCheckRuns.errorMessage,
     })
     .from(rankCheckRuns)
     .innerJoin(
@@ -368,20 +369,21 @@ async function getConfigSummaries(projectId: string) {
 
   const latestRunMap = new Map<
     string,
-    { status: string; completedAt: string | null }
+    { completedAt: string | null; errorMessage: string | null }
   >();
   for (const run of latestRuns) {
     latestRunMap.set(run.configId, {
-      status: run.status,
       completedAt: run.completedAt,
+      errorMessage: run.errorMessage,
     });
   }
 
   return configs.map((config) => ({
     ...config,
     keywordCount: kwCountMap.get(config.id) ?? 0,
-    lastRunStatus: latestRunMap.get(config.id)?.status ?? null,
     lastRunCompletedAt: latestRunMap.get(config.id)?.completedAt ?? null,
+    // A finished run only has an error message when it failed or was partial.
+    lastRunIncomplete: Boolean(latestRunMap.get(config.id)?.errorMessage),
   }));
 }
 
@@ -439,6 +441,7 @@ export const RankTrackingRepository = {
   getActiveRunForConfig,
   insertSnapshots,
   upsertSnapshots,
+  updateSnapshotUrls,
   deleteNotFoundSnapshots,
   getSnapshotsForRun,
   getKeywordsForConfig,

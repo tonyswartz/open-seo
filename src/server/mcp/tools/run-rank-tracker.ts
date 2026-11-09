@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { waitUntil } from "cloudflare:workers";
 import { RankTrackingService } from "@/server/features/rank-tracking/services/RankTrackingService";
+import { AppError } from "@/server/lib/errors";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { mcpResponse } from "@/server/mcp/formatters";
@@ -36,7 +37,7 @@ export const runRankTrackerTool = {
   config: {
     title: "Run rank tracker",
     description:
-      "Start an explicit rank check for every keyword and configured device: live by default, or validated (queued, each result checked against its own Google page, dropped-location readings withheld) with validated: true. This spends credits: call estimate_rank_tracker_cost, show the estimate to the user, and pass the approved credit amount as maxCostCredits. A fresh estimate above that ceiling is rejected. Hosted accounts require a paid plan, while self-hosted deployments are not plan-gated. If a run is already in progress, its blocking run ID is reported without starting or charging another check. The schedule is unchanged.",
+      "Start an explicit rank check for every keyword and configured device. Pass validated: true for a validated check instead (each result checked against its own Google page, dropped-location readings withheld). This spends credits: call estimate_rank_tracker_cost, show the estimate to the user, and pass the approved credit amount as maxCostCredits. A fresh estimate above that ceiling is rejected. Hosted accounts require a paid plan, while self-hosted deployments are not plan-gated. If a run is already in progress, its blocking run ID is reported without starting or charging another check. The schedule is unchanged.",
     inputSchema,
     outputSchema: z
       .object({
@@ -60,12 +61,19 @@ export const runRankTrackerTool = {
       billingCustomer: context.billing,
       maxCostCredits: args.maxCostCredits,
       validateSerps: args.validated,
+    }).catch((error: unknown) => {
+      if (error instanceof AppError && error.code === "PAYMENT_REQUIRED")
+        throw new AppError(
+          "PAYMENT_REQUIRED",
+          "Rank checks need a paid OpenSEO plan, and this account doesn't have one. If Search Console is connected, get_search_console_performance shows the site's average positions for free; get_serp_results checks one keyword's live results for credits.",
+        );
+      throw error;
     });
     const trackerPath = `/p/${args.projectId}/rank-tracking/${args.trackerId}`;
 
     if (!result.ok) {
       return mcpResponse({
-        text: `A rank check is already running for tracker ${args.trackerId}${result.blockingRunId ? ` (run ${result.blockingRunId})` : ""}. No new run was created and no additional check was charged. Poll get_rank_tracker until lastCheckedAt advances.`,
+        text: `A rank check is already running for tracker ${args.trackerId}${result.blockingRunId ? ` (run ${result.blockingRunId})` : ""}. No new run was created and no additional check was charged. Poll get_rank_tracker with this trackerId until its Latest run line no longer says pending or running.`,
         meta: buildProjectMeta(context, args.projectId, trackerPath),
         structuredContent: {
           trackerId: args.trackerId,
@@ -91,8 +99,8 @@ export const runRankTrackerTool = {
 
     return mcpResponse({
       text: args.validated
-        ? `Validated rank check ${result.runId} started for tracker ${args.trackerId}. It runs through the task queue and takes 5 to 25 minutes: poll get_rank_tracker until lastCheckedAt advances. Readings that fail the page or history check are crawled again and otherwise held at their previous position; get_rank_tracker's latest-run line reports how many were held.`
-        : `Rank check ${result.runId} started for tracker ${args.trackerId}. It retries keywords that error or come back missing, so it can take up to an hour. Poll get_rank_tracker until lastCheckedAt advances, then read the updated positions.`,
+        ? `Validated rank check ${result.runId} started for tracker ${args.trackerId}. It runs through the task queue and can take up to an hour. Poll get_rank_tracker with this trackerId until its Latest run line no longer says pending or running. Readings that fail the page or history check are crawled again and otherwise held at their previous position; the Latest run line reports how many were held.`
+        : `Rank check ${result.runId} started for tracker ${args.trackerId}. It reads every keyword several times, so it can take up to 2 hours. Poll get_rank_tracker with this trackerId until its Latest run line no longer says pending or running, then read the updated positions.`,
       meta: buildProjectMeta(context, args.projectId, trackerPath),
       structuredContent: {
         trackerId: args.trackerId,

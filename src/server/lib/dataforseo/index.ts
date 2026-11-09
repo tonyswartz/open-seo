@@ -28,13 +28,18 @@ export { normalizeBacklinksTarget } from "@/server/lib/dataforseoBacklinksTarget
 
 // Section fetchers called outside the metered client. Task collection is free
 // at DataForSEO (the task was charged at task_post), so routing these through
-// the metering seam would charge the customer twice; business categories are
-// free ($0), so a zero-credit org can still list them.
+// the metering seam would charge the customer twice; business categories and
+// the goto URL converter are free ($0), so a zero-credit org can still use them.
 export {
   fetchLocalSerpTaskResult,
   fetchRankCheckTaskHtml,
   fetchRankCheckTaskResult,
+  fetchSerpTaskResult,
 } from "@/server/lib/dataforseo/serp";
+export {
+  MAX_GOTO_URLS_PER_REQUEST,
+  resolveGotoUrls,
+} from "@/server/lib/dataforseo/appendix";
 export {
   fetchAiTrackingTaskResult,
   type AiTrackingAnswer,
@@ -58,6 +63,7 @@ export type { AdsKeywordIdeaItem } from "@/server/lib/dataforseo/google-ads";
 export type {
   LocalSerpTaskOutcome,
   SerpLiveItem,
+  SerpQuery,
   RankCheckResult,
   RankCheckTaskInput,
   PostedRankCheckTask,

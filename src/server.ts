@@ -33,8 +33,6 @@ import {
 } from "@/server/billing/autumn-webhook";
 import { sweepDubReferredOrganizations } from "@/server/referrals/dub";
 import { maybeSendSelfHostHeartbeat } from "@/server/lib/self-host-telemetry";
-import { handleGdprStorageErasure } from "@/server/gdpr/storage-erasure";
-import { GDPR_STORAGE_ERASURE_PATH } from "@/shared/gdpr-erasure";
 import { handleSeoHistoryRequest } from "@/server/seo-history/http";
 import { SEO_HISTORY_HTTP_PATH } from "@/shared/seo-history";
 import { runDailyGoogleIntegrationHealthProbe } from "@/server/features/google/services/dailyGoogleIntegrationHealthProbe";
@@ -218,10 +216,6 @@ async function handleAppRequest(
     );
   }
 
-  if (pathname === GDPR_STORAGE_ERASURE_PATH) {
-    return handleGdprStorageErasure(publicRequest, env);
-  }
-
   if (
     pathname === SEO_HISTORY_HTTP_PATH ||
     pathname.startsWith(`${SEO_HISTORY_HTTP_PATH}/`)
@@ -315,6 +309,18 @@ export default {
           console.log("[retention] purged unused Google data", purged);
         } catch (err) {
           console.error("[cron] Google data cleanup failed:", err);
+        }
+
+        // Self-serve account deletions whose 14-day wait is over.
+        try {
+          const { AccountDeletionService } =
+            await import("@/server/account-deletion/AccountDeletionService");
+          const result = await withPgClient(() =>
+            AccountDeletionService.runDueDeletions(),
+          );
+          console.log("[account-deletion] daily run", result);
+        } catch (err) {
+          console.error("[cron] Account deletion run failed:", err);
         }
       }
       return;

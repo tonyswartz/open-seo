@@ -81,6 +81,12 @@ const SHIPPED_SQLITE_MIGRATIONS = [
   "0065_reflective_wrecker",
   "0066_bumpy_fat_cobra",
   "0067_bind_api_keys_to_organization",
+  "0068_account_deletion_requests",
+  "0069_adorable_devos",
+  "0070_guest_accounts",
+  "0071_guest_account_slots",
+  "0072_signup_sources",
+  "0073_guest_claimed_by",
 ];
 
 type Journal = { entries: { idx: number; when: number; tag: string }[] };

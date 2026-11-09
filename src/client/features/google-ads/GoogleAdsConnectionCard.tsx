@@ -120,13 +120,12 @@ export function GoogleAdsConnectionCard({ projectId }: { projectId: string }) {
       title="Google Ads (Local Services)"
       icon={<GoogleAdsLogo className="size-5" />}
       action={
-        connectionQuery.isPending || connectionUnavailable ? undefined : (
-          <ConnectionStatusPill
-            connected={connected && !needsGoogleOAuthSetup}
-            setupRequired={needsGoogleOAuthSetup}
-            connection={connection}
-          />
-        )
+        <ConnectionStatusPill
+          hidden={connectionQuery.isPending || connectionUnavailable}
+          connected={connected}
+          setupRequired={needsGoogleOAuthSetup}
+          connection={connection}
+        />
       }
     >
       <GoogleLinkErrorAlert provider="gads" className="mb-4" />

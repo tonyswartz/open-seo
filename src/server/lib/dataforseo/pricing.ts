@@ -29,12 +29,13 @@ import {
 } from "@/server/lib/dataforseo/google-ads";
 import {
   clampSerpDepth,
-  fetchLiveSerp,
   fetchLocalSerp,
   fetchRankCheckSerp,
   postLocalSerpTasks,
   postRankCheckTasks,
+  postSerpReadTasks,
   SERP_ANALYSIS_DEPTH,
+  SERP_READS_PER_QUERY,
 } from "@/server/lib/dataforseo/serp";
 import { fetchLighthouseResult } from "@/server/lib/dataforseo/lighthouse";
 import {
@@ -171,10 +172,22 @@ function backlinksUsd(rows: number) {
   return BACKLINKS_TASK_USD + rows * BACKLINKS_ROW_USD;
 }
 
-/** SERP endpoints bill per page of 10; a partial page is a full page. */
-function serpUsd(depth: number, method: "live" | "queued", keyword: string) {
+/** Fork: live-endpoint SERP pages, for the validated path's live fallback. */
+const LIVE_SERP_BASE_PAGE_USD = 0.002;
+const LIVE_SERP_EXTRA_PAGE_USD = 0.0015;
+
+function liveSerpUsd(depth: number, keyword: string) {
+  const pages = Math.ceil(depth / 10);
   return (
-    costPerSerpAtDepth(Math.ceil(depth / 10) * 10, method) *
+    (LIVE_SERP_BASE_PAGE_USD + (pages - 1) * LIVE_SERP_EXTRA_PAGE_USD) *
+    serpKeywordCostMultiplier(keyword)
+  );
+}
+
+/** SERP endpoints bill per page of 10; a partial page is a full page. */
+function serpUsd(depth: number, keyword: string) {
+  return (
+    costPerSerpAtDepth(Math.ceil(depth / 10) * 10) *
     serpKeywordCostMultiplier(keyword)
   );
 }
@@ -252,20 +265,23 @@ export const dataforseoPricing = {
     relevantPages: priced(fetchRelevantPages, (input) => labsUsd(input.limit)),
   },
   serp: {
-    live: priced(fetchLiveSerp, (input) =>
-      serpUsd(
-        clampSerpDepth(input.depth ?? SERP_ANALYSIS_DEPTH),
-        "live",
-        input.keyword,
-      ),
+    // High priority (priority 2) doubles the standard-queue rate.
+    readsTaskPost: priced(
+      postSerpReadTasks,
+      (input) =>
+        SERP_READS_PER_QUERY *
+        2 *
+        serpUsd(
+          clampSerpDepth(input.depth ?? SERP_ANALYSIS_DEPTH),
+          input.keyword,
+        ),
     ),
     rankCheck: priced(fetchRankCheckSerp, (input) =>
-      serpUsd(clampSerpDepth(input.depth), "live", input.keyword),
+      liveSerpUsd(clampSerpDepth(input.depth), input.keyword),
     ),
     rankCheckTaskPost: priced(postRankCheckTasks, (input) =>
       input.tasks.reduce(
-        (sum, task) =>
-          sum + serpUsd(clampSerpDepth(input.depth), "queued", task.keyword),
+        (sum, task) => sum + serpUsd(clampSerpDepth(input.depth), task.keyword),
         0,
       ),
     ),

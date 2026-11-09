@@ -200,34 +200,6 @@ async function getStatus(auditId: string, projectId: string) {
   };
 }
 
-async function getResults(auditId: string, projectId: string) {
-  const { audit, pages, lighthouse, issues } =
-    await AuditRepository.getAuditResultsForProject(auditId, projectId);
-
-  if (!audit) throw new AppError("NOT_FOUND");
-
-  const parsedConfig = parseAuditConfig(audit.config);
-  if (!parsedConfig) {
-    throw new AppError("INTERNAL_ERROR", "Invalid audit configuration");
-  }
-
-  return {
-    audit: {
-      id: audit.id,
-      startUrl: audit.startUrl,
-      status: audit.status,
-      pagesCrawled: audit.pagesCrawled,
-      pagesTotal: audit.pagesTotal,
-      startedAt: audit.startedAt,
-      completedAt: audit.completedAt,
-      config: parsedConfig,
-    },
-    pages,
-    lighthouse,
-    issues,
-  };
-}
-
 async function getHistory(projectId: string) {
   const auditList = await AuditRepository.getAuditsByProject(projectId);
 
@@ -307,7 +279,7 @@ async function remove(auditId: string, projectId: string) {
     console.warn(`Failed to destroy audit scratchpad ${auditId}:`, error);
   }
   // Best-effort: the stored Lighthouse reports. A miss is swept when the
-  // account is erased (storage-erasure.ts).
+  // account is erased (account-deletion/storage.ts).
   try {
     await deleteR2Prefix(env.R2, `site-audit/${projectId}/${auditId}/`);
   } catch (error) {
@@ -320,7 +292,6 @@ export const AuditService = {
   startAudit,
   getStatus,
   getCrawlProgress,
-  getResults,
   getHistory,
   remove,
 } as const;
