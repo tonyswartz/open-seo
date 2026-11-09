@@ -15,10 +15,7 @@ import {
   PlanGuarantee,
   PlanOfferCard,
 } from "@/client/features/billing/PlanOfferCard";
-import {
-  YC_PLAN_OFFER,
-  monthlyCreditsFeature,
-} from "@/client/features/billing/plan-offers";
+import { YC_PLAN_OFFER } from "@/client/features/billing/plan-offers";
 import { openPlanCheckout } from "@/client/features/billing/checkout";
 import { useCanManageBilling } from "@/client/features/team/organizationQueries";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
@@ -26,15 +23,16 @@ import { useSession } from "@/lib/auth-client";
 import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { BILLING_ROUTE } from "@/shared/billing";
 import { SUPPORT_EMAIL } from "@/client/lib/support";
+import { pageHead } from "@/client/lib/pageHead";
 
 const PLAN_FEATURES = [
   "Keyword research, backlinks, rank tracking, and site audits",
   "MCP server and agent skills for Claude, Cursor, and ChatGPT",
   "Google Search Console Integration",
-  monthlyCreditsFeature(YC_PLAN_OFFER),
 ];
 
 export const Route = createFileRoute("/_authenticated/yc")({
+  head: () => pageHead("YC founders"),
   // The loader fills the module-scoped query client, so keep it out of server
   // requests: one worker isolate must not cache another account's billing.
   ssr: false,

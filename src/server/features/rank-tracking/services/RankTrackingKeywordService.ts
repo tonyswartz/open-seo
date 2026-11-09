@@ -7,6 +7,7 @@ import {
   estimateScheduledRankCheckCredits,
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
+  MAX_READS_PER_CHECK,
   VALIDATED_CRAWLS_PER_PAIR,
 } from "@/shared/rank-tracking";
 
@@ -42,11 +43,18 @@ async function addKeywords(
   for (const raw of keywords) {
     if (rows.length >= available) break;
     const trimmed = raw.trim();
-    const normalized = matchCase ? trimmed : trimmed.toLowerCase();
+    // Lowercase with the tracker's language: Turkish "İstanbul" and "KIRMIZI"
+    // become "istanbul" and "kırmızı", not different words.
+    const normalized = matchCase
+      ? trimmed
+      : trimmed.toLocaleLowerCase(config.languageCode);
     if (
       normalized &&
       !seen.has(normalized) &&
-      !existingKeywords.has(normalized)
+      !existingKeywords.has(normalized) &&
+      // Rows added before language-aware lowercasing used toLowerCase(), so
+      // a Turkish re-add must not create a twin of that older row.
+      (matchCase || !existingKeywords.has(trimmed.toLowerCase()))
     ) {
       seen.add(normalized);
       rows.push({
@@ -157,16 +165,17 @@ async function estimateCost(
     ...additionalKeywords,
   ].slice(0, Math.max(existingKeywordCount, MAX_KEYWORDS_PER_CONFIG));
   const keywordCount = keywords.length;
-  // A validated run is queued and approved at its worst case of
-  // VALIDATED_CRAWLS_PER_PAIR crawls per pair (see rankCheckQueuedPath).
+  // A validated run is approved at its worst case of VALIDATED_CRAWLS_PER_PAIR
+  // crawls per pair (see rankCheckQueuedPath); a plain check at its most reads.
   const validated = options.validated === true;
-  const method = validated ? "queued" : "live";
+  const crawlsPerCheck = validated
+    ? VALIDATED_CRAWLS_PER_PAIR
+    : MAX_READS_PER_CHECK;
   const { costUsd, costCredits } = estimateRankCheckCredits(
     keywords,
     config.devices,
     config.serpDepth,
-    method,
-    validated ? VALIDATED_CRAWLS_PER_PAIR : 1,
+    crawlsPerCheck,
   );
   const scheduleInterval = isScheduledRankTrackingInterval(
     config.scheduleInterval,
@@ -179,9 +188,8 @@ async function estimateCost(
     keywordCount,
     devicesCount: devicesCount(config.devices),
     totalChecks: keywordCount * devicesCount(config.devices),
-    method,
     validated,
-    crawlsPerCheck: validated ? VALIDATED_CRAWLS_PER_PAIR : 1,
+    crawlsPerCheck,
     existingKeywordCount,
     additionalKeywordCount: keywordCount - existingKeywordCount,
     scheduledEstimate: scheduleInterval

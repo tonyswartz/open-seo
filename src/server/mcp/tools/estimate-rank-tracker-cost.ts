@@ -43,7 +43,7 @@ export const estimateRankTrackerCostTool = {
   config: {
     title: "Estimate rank tracker cost",
     description:
-      "Estimate rank tracker cost without spending credits or starting a check. Each estimate is the most a check can cost. The live estimate covers one explicit run_rank_tracker check and includes up to two queued retries of every keyword/device check, which run only for checks that error or read as lost, so most checks cost less. Pass validated: true for the worst-case figure of a validated check, priced at six crawls per SERP check in place of those retries. For a scheduled tracker, the response also includes the queued per-check and approximate monthly recurring cost. Pass additionalKeywords before adding keywords to project the post-add cost.",
+      "Estimate rank tracker cost without spending credits or starting a check. Each estimate is the most a check can cost: every keyword/device gets 3 to 6 reads, and most checks use nearly all of them. The estimate covers one explicit run_rank_tracker check. Pass validated: true for the worst-case figure of a validated check, priced at six crawls per SERP check. For a scheduled tracker, the response also includes the per-check and approximate monthly recurring cost. Pass additionalKeywords before adding keywords to project the post-add cost.",
     inputSchema,
     outputSchema: z
       .object({
@@ -53,7 +53,6 @@ export const estimateRankTrackerCostTool = {
         keywordCount: z.number(),
         devicesCount: z.number(),
         totalChecks: z.number(),
-        method: z.enum(["live", "queued"]),
         validated: z.boolean(),
         crawlsPerCheck: z.number(),
         existingKeywordCount: z.number(),
@@ -87,7 +86,7 @@ export const estimateRankTrackerCostTool = {
       { validated: args.validated },
     );
     return mcpResponse({
-      text: `One ${estimate.validated ? "validated" : "live"} check for tracker ${args.trackerId} costs at most $${estimate.costUsd.toFixed(4)} (${estimate.costCredits} credits, ${estimate.validated ? `priced at the worst case of ${estimate.crawlsPerCheck} crawls each; typical spend is lower` : "including retries"}): ${estimate.keywordCount} keyword${estimate.keywordCount === 1 ? "" : "s"} × ${estimate.devicesCount} device${estimate.devicesCount === 1 ? "" : "s"} = ${estimate.totalChecks} SERP checks.${estimate.additionalKeywordCount > 0 ? ` This projects ${estimate.additionalKeywordCount} additional keyword${estimate.additionalKeywordCount === 1 ? "" : "s"}.` : ""}${estimate.scheduledEstimate ? ` Its ${estimate.scheduledEstimate.scheduleInterval} queued checks cost at most $${estimate.scheduledEstimate.costUsd.toFixed(4)} (${estimate.scheduledEstimate.costCredits} credits) each, or up to about $${estimate.scheduledEstimate.monthlyCostUsd.toFixed(4)} (${estimate.scheduledEstimate.monthlyCostCredits} credits) per month. Use the per-check estimate as maxEstimatedScheduledCheckCredits when adding keywords.` : ""} No check was started.`,
+      text: `One ${estimate.validated ? "validated " : ""}check for tracker ${args.trackerId} costs at most $${estimate.costUsd.toFixed(4)} (${estimate.costCredits} credits, ${estimate.validated ? `priced at the worst case of ${estimate.crawlsPerCheck} crawls each; typical spend is lower` : `for up to ${estimate.crawlsPerCheck} reads each`}): ${estimate.keywordCount} keyword${estimate.keywordCount === 1 ? "" : "s"} × ${estimate.devicesCount} device${estimate.devicesCount === 1 ? "" : "s"} = ${estimate.totalChecks} SERP checks.${estimate.additionalKeywordCount > 0 ? ` This projects ${estimate.additionalKeywordCount} additional keyword${estimate.additionalKeywordCount === 1 ? "" : "s"}.` : ""}${estimate.scheduledEstimate ? ` Its ${estimate.scheduledEstimate.scheduleInterval} checks cost at most $${estimate.scheduledEstimate.costUsd.toFixed(4)} (${estimate.scheduledEstimate.costCredits} credits) each, or up to about $${estimate.scheduledEstimate.monthlyCostUsd.toFixed(4)} (${estimate.scheduledEstimate.monthlyCostCredits} credits) per month. Use the per-check estimate as maxEstimatedScheduledCheckCredits when adding keywords.` : ""} No check was started.`,
       meta: buildProjectMeta(
         context,
         args.projectId,

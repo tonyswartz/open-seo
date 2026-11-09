@@ -31,17 +31,32 @@ export async function tryCreateRun(data: {
   return Boolean(inserted[0]);
 }
 
+/**
+ * Updates a run that is still pending or running, and reports whether it did.
+ * A completed or failed run is final: the stale-run cleanup and the workflow
+ * can race, and the loser must not bring a finished run back to life.
+ */
 export async function updateRun(
   runId: string,
   data: Partial<InferInsertModel<typeof rankCheckRuns>>,
 ) {
-  await db.update(rankCheckRuns).set(data).where(eq(rankCheckRuns.id, runId));
+  const updated = await db
+    .update(rankCheckRuns)
+    .set(data)
+    .where(
+      and(
+        eq(rankCheckRuns.id, runId),
+        inArray(rankCheckRuns.status, ["pending", "running"]),
+      ),
+    )
+    .returning({ id: rankCheckRuns.id });
+  return updated.length > 0;
 }
 
 /**
- * Record why a keyword failed, first reason wins. Batch steps call this on
- * each rejection so finalize can show the vendor's actual message instead of
- * a generic "could not be checked".
+ * Record why a keyword failed, first reason wins. Fork: the validated path's
+ * live fallback (checkBatchLive) calls this on each rejection so finalize can
+ * show the vendor's actual message instead of a generic "could not be checked".
  */
 export async function setRunErrorIfEmpty(runId: string, errorMessage: string) {
   await db
@@ -141,6 +156,15 @@ export async function upsertSnapshots(
           topDomains: snapshot.topDomains,
         },
       }),
+  );
+}
+
+/** Replace the ranking URL of saved snapshots. */
+export async function updateSnapshotUrls(
+  updates: Array<{ id: number; url: string }>,
+) {
+  await executeInBatches(updates, (tx, { id, url }) =>
+    tx.update(rankSnapshots).set({ url }).where(eq(rankSnapshots.id, id)),
   );
 }
 

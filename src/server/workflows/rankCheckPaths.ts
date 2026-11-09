@@ -12,7 +12,6 @@ import type {
 } from "@/server/lib/dataforseo";
 import { AppError } from "@/server/lib/errors";
 import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
-import { KEYWORDS_PER_BATCH } from "@/shared/rank-tracking";
 import { pgStep } from "@/server/workflows/pgStep";
 
 // Fork: exported for the validated path (rankCheckQueuedPath.ts).
@@ -202,51 +201,13 @@ export async function checkBatchLive(
   return written;
 }
 
-/**
- * Check keywords via Live API, parallel devices per keyword, real-time progress.
- * Snapshots are written incrementally after each batch so partial results
- * survive batch failures. ~6s per keyword batch, longer when calls are retried.
- * Each round of a batch's calls is billed with one credit hold and one settle
- * (checkBatchLive). A failed batch step doesn't stop the run; its pairs are
- * retried by retryRankChecks.
- */
-export async function runLiveCheck(
-  step: WorkflowStep,
-  ctx: CheckContext,
-): Promise<void> {
-  for (let i = 0; i < ctx.keywords.length; i += KEYWORDS_PER_BATCH) {
-    const keywordBatch = ctx.keywords.slice(i, i + KEYWORDS_PER_BATCH);
-    const batchTasks = expandToTaskInputs(keywordBatch, ctx.devices);
-    const batchIndex = Math.floor(i / KEYWORDS_PER_BATCH);
-    const keywordsChecked = i + keywordBatch.length;
-
-    try {
-      await pgStep(
-        step,
-        `live-batch-${batchIndex}`,
-        LIVE_BATCH_STEP_CONFIG,
-        async () => {
-          const written = await checkBatchLive(ctx, batchTasks);
-          // Progress for the UI; finalize recounts from the DB anyway.
-          await RankTrackingRepository.updateRun(ctx.runId, {
-            keywordsChecked,
-          });
-          return written;
-        },
-      );
-    } catch (error) {
-      console.warn(
-        `[rank-check] ${ctx.runId} live-batch-${batchIndex} failed:`,
-        error,
-      );
-    }
-  }
-}
-
-// Poll cadence for queued tasks. Standard-priority tasks complete in ~5
-// minutes on average, so the first check waits 4 minutes; cumulative waits are
-// 4 / 6 / 8 / 10 / 12 / 15 minutes, after which unfinished tasks are left for
-// retryRankChecks.
+// Poll cadence for queued tasks. Standard-priority tasks usually complete in
+// ~5 minutes, so the first check waits 4 minutes and polls are frequent up to
+// 15 minutes, every 5 minutes up to 30 so slow rounds still leave time for more
+// reads inside READ_WINDOW_MS, then sparse up to an hour. Collecting a slow
+// task is free while re-posting it is billed again, so unfinished tasks are only
+// left for the next read after that. Cumulative waits: 4 / 6 / 8 / 10 / 12 / 15 /
+// 20 / 25 / 30 / 45 / 60 minutes.
 const QUEUED_POLL_INTERVALS = [
   "4 minutes",
   "2 minutes",
@@ -254,6 +215,11 @@ const QUEUED_POLL_INTERVALS = [
   "2 minutes",
   "2 minutes",
   "3 minutes",
+  "5 minutes",
+  "5 minutes",
+  "5 minutes",
+  "15 minutes",
+  "15 minutes",
 ] as const;
 
 /** Concurrent task_get requests within a collect step. */
@@ -323,7 +289,7 @@ async function fetchQueuedRound(
 
 /**
  * Post tasks to DataForSEO's standard queue (~30% of live cost), one metered
- * step per 100, then poll task_get for ~15 minutes. `onCollected` runs inside
+ * step per 100, then poll task_get for up to an hour. `onCollected` runs inside
  * each collect step with that round's results. A task that's rejected, fails
  * or never finishes gets no result. Returns every collected result.
  */
@@ -349,7 +315,6 @@ export async function runQueuedTasks(
             languageCode: ctx.languageCode,
             locationName: ctx.locationName,
             depth: ctx.serpDepth,
-            targetDomain: ctx.domain,
           }),
         )),
       );
@@ -399,9 +364,9 @@ export async function runQueuedTasks(
 }
 
 /**
- * Check every keyword/device pair through the task queue (scheduled runs),
- * writing snapshots as tasks complete. Billing happens at task_post. Pairs
- * left without a result are retried by retryRankChecks.
+ * Read every keyword/device pair once through the task queue, writing snapshots
+ * as tasks complete. Billing happens at task_post. Further reads are made by
+ * retryRankChecks.
  */
 export async function runQueuedCheck(
   step: WorkflowStep,

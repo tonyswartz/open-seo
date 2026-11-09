@@ -19,9 +19,8 @@ For security-conscious setups, you can replace the accounts with your own networ
 OpenSEO uses [DataForSEO](https://dataforseo.com/?aff=255379) to fetch SEO data. DataForSEO is a paid third-party service unaffiliated with OpenSEO. You need an API key to connect OpenSEO to it.
 
 1. Go to [DataForSEO API Access](https://app.dataforseo.com/api-access?aff=255379).
-2. Click "Send by email" to get your credentials.
-3. Copy the longer credentials labelled "Base64" credentials.
-4. Set this as `DATAFORSEO_API_KEY` in your environment:
+2. Copy the API credential labelled "Base64" from the API Access page.
+3. Set this as `DATAFORSEO_API_KEY` in your environment:
    - Docker: `deploy/standalone/.env`
    - Cloudflare: `.env.selfhost`
    - Local development: `.env.local`
@@ -33,3 +32,7 @@ New DataForSEO accounts include $1 of free credit to test with, and the minimum 
 ### Google Search Console
 
 Search Console is optional and works in self-hosted deployments using your own Google OAuth client. It takes about 10 minutes of one-time setup. See the [Google Search Console guide on GitHub](https://github.com/every-app/open-seo/blob/main/docs/SELF_HOSTING_GOOGLE_SEARCH_CONSOLE.md).
+
+### Google Analytics
+
+Google Analytics is optional too and uses your own Google OAuth client. See the [Google Analytics guide on GitHub](https://github.com/every-app/open-seo/blob/main/docs/SELF_HOSTING_GOOGLE_ANALYTICS.md).

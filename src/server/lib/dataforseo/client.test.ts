@@ -88,8 +88,10 @@ vi.mock("@/server/lib/dataforseo/labs", () => ({
   fetchSerpCompetitors: vi.fn(),
 }));
 vi.mock("@/server/lib/dataforseo/serp", () => ({
-  fetchLiveSerp: vi.fn(),
+  // Fork: the validated path's live fallback (rankCheckBatch).
   fetchRankCheckSerp: vi.fn(),
+  postSerpReadTasks: vi.fn(),
+  SERP_READS_PER_QUERY: 3,
   postRankCheckTasks: vi.fn(),
   fetchLocalSerp: vi.fn(),
   postLocalSerpTasks: vi.fn(),
@@ -134,15 +136,12 @@ vi.mock("@/server/lib/dataforseo/ai-tracking", () => ({
 }));
 
 import { waitUntil } from "cloudflare:workers";
-import {
-  createDataforseoClient,
-  mapDataforseoPathToCreditFeature,
-} from "@/server/lib/dataforseo/client";
+import { createDataforseoClient } from "@/server/lib/dataforseo/client";
 import { dataforseoPricing } from "@/server/lib/dataforseo/pricing";
 import { DataforseoChargedTaskError } from "@/server/lib/dataforseo/envelope";
 import { AppError } from "@/server/lib/errors";
 import { fetchBacklinksSummary } from "@/server/lib/dataforseo/backlinks";
-import { fetchRankCheckSerp } from "@/server/lib/dataforseo/serp";
+import { postSerpReadTasks } from "@/server/lib/dataforseo/serp";
 import { postAiTrackingTasks } from "@/server/lib/dataforseo/ai-tracking";
 
 const billingCustomer = {
@@ -231,6 +230,9 @@ describe("meterDataforseoCall", () => {
       customerId: "org_123",
       featureId: AUTUMN_SEO_DATA_BALANCE_FEATURE_ID,
       requiredBalance: ESTIMATED_CREDITS,
+      // Autumn files the hold and the settle as separate usage events, so the
+      // billing page's feature breakdown needs the feature on the hold too.
+      properties: { creditFeature: "backlinks" },
     });
     // The execute + settle chain is registered with the request so a client
     // disconnect after dispatch cannot skip the deduction.
@@ -264,12 +266,13 @@ describe("meterDataforseoCall", () => {
     });
   });
 
-  it("releases the hold for an unbilled invalid-field failure and throws VALIDATION_ERROR", async () => {
+  it("releases the hold for an unbilled invalid-field failure, logs the field but not its value, and throws VALIDATION_ERROR", async () => {
     setupHostedMode();
     mockMonthlyBalance(5000);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(fetchBacklinksSummary).mockRejectedValue(
       new DataforseoChargedTaskError(
-        "Invalid Field: 'target'.",
+        `Invalid Field: 'target'. (sent target="customer.example")`,
         { costUsd: 0, path: backlinksPath },
         true,
       ),
@@ -281,6 +284,12 @@ describe("meterDataforseoCall", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
 
     expect(finalizeMock.mock.calls[0][0]).toMatchObject({ action: "release" });
+    expect(warn).toHaveBeenCalledWith("dataforseo.invalid-field", {
+      event: "dataforseo.invalid-field",
+      path: "/v3/backlinks/summary/live",
+      field: "target",
+    });
+    warn.mockRestore();
   });
 
   it("releases the hold when the provider call fails before billing", async () => {
@@ -357,40 +366,31 @@ describe("AI visibility queued posts", () => {
   });
 });
 
-describe("rankCheckBatch", () => {
+describe("readsTaskPostBatch", () => {
   const input = {
     keyword: "running shoes",
-    keywordId: "kw_1",
     locationCode: 2840,
     languageCode: "en",
     device: "desktop" as const,
-    targetDomain: "example.com",
     depth: 10,
   };
   const callEstimate = creditsForProviderUsd(
-    dataforseoPricing.serp.rankCheck(input),
+    dataforseoPricing.serp.readsTaskPost(input),
   );
   // 2 * ceil(1.28) = 4 credits for two calls, not ceil(2.56) = 3 for their
   // summed cost: each call is credited as it would be unbatched.
   const billed = {
-    data: {
-      keywordId: "kw_1",
-      keyword: "running shoes",
-      position: 3,
-      url: null,
-      serpFeatures: [],
-      topDomains: [],
-    },
+    data: ["task-1", "task-2", "task-3"],
     billing: {
       costUsd: 0.001,
-      path: ["v3", "serp", "google", "organic", "live", "advanced"],
+      path: ["v3", "serp", "google", "organic", "task_post"],
     },
   };
 
   it("bills the batch with one hold on the summed estimate and one confirm on the billed calls", async () => {
     setupHostedMode();
     mockMonthlyBalance(5000);
-    vi.mocked(fetchRankCheckSerp)
+    vi.mocked(postSerpReadTasks)
       .mockResolvedValueOnce(billed)
       .mockRejectedValueOnce(
         new AppError("UPSTREAM_UNAVAILABLE", "DataForSEO timed out"),
@@ -398,7 +398,7 @@ describe("rankCheckBatch", () => {
       .mockResolvedValueOnce(billed);
 
     const client = createDataforseoClient(billingCustomer);
-    const settled = await client.serp.rankCheckBatch([input, input, input]);
+    const settled = await client.serp.readsTaskPostBatch([input, input, input]);
 
     expect(settled.map((outcome) => outcome.status)).toEqual([
       "fulfilled",
@@ -429,10 +429,10 @@ describe("rankCheckBatch", () => {
         balance: { remaining: balance },
       };
     });
-    vi.mocked(fetchRankCheckSerp).mockResolvedValue(billed);
+    vi.mocked(postSerpReadTasks).mockResolvedValue(billed);
 
     const client = createDataforseoClient(billingCustomer);
-    const settled = await client.serp.rankCheckBatch([input, input, input]);
+    const settled = await client.serp.readsTaskPostBatch([input, input, input]);
 
     expect(settled.every((outcome) => outcome.status === "fulfilled")).toBe(
       true,
@@ -459,37 +459,5 @@ describe("rankCheckBatch", () => {
         overrideValue: creditsForProviderUsd(0.001),
       },
     ]);
-  });
-});
-
-describe("mapDataforseoPathToCreditFeature", () => {
-  it.each([
-    ["v3/dataforseo_labs/google/related_keywords/live", "keyword_research"],
-    ["v3/dataforseo_labs/google/keyword_suggestions/live", "keyword_research"],
-    ["v3/serp/google/organic/live/regular", "keyword_research"],
-    ["v3/keywords_data/google_ads/search_volume/live", "keyword_research"],
-    ["v3/dataforseo_labs/google/domain_rank_overview/live", "domain_overview"],
-    ["v3/dataforseo_labs/google/ranked_keywords/live", "domain_overview"],
-    ["v3/dataforseo_labs/google/relevant_pages/live", "domain_overview"],
-    ["v3/backlinks/summary/live", "backlinks"],
-    ["backlinks/summary", "backlinks"],
-    ["v3/backlinks/referring_domains/live", "backlinks"],
-    ["v3/on_page/lighthouse/live/json", "site_audit"],
-    ["v3/ai_optimization/llm_mentions/search/live", "ai_citations"],
-    ["v3/ai_optimization/llm_mentions/aggregated_metrics/live", "ai_citations"],
-    ["v3/ai_optimization/llm_mentions/top_pages/live", "ai_citations"],
-    [
-      "v3/ai_optimization/ai_keyword_data/keywords_search_volume/live",
-      "keyword_research",
-    ],
-    ["v3/ai_optimization/chat_gpt/llm_responses/live", "ai_prompt_responses"],
-    ["v3/ai_optimization/claude/llm_responses/live", "ai_prompt_responses"],
-    ["v3/ai_optimization/gemini/llm_responses/live", "ai_prompt_responses"],
-    ["v3/ai_optimization/perplexity/llm_responses/live", "ai_prompt_responses"],
-    ["v3/business_data/business_listings/search/live", "local_seo"],
-    ["v3/serp/google/local_finder/live/advanced", "local_seo"],
-    ["v3/serp/google/maps/live/advanced", "local_seo"],
-  ])("maps %s to %s", (path, feature) => {
-    expect(mapDataforseoPathToCreditFeature(path.split("/"))).toBe(feature);
   });
 });
