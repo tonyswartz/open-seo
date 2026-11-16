@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- all site-audit MCP tools are intentionally kept in one module */
-import { sort } from "remeda";
+import { sort, sortBy } from "remeda";
 import { z } from "zod";
 import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
 import { AUDIT_LIMITS } from "@/server/features/audit/services/audit-capacity";
@@ -7,12 +7,17 @@ import { AuditService } from "@/server/features/audit/services/AuditService";
 import {
   getAuditIssueGroups,
   listAuditIssues,
+  listAuditLighthouseResults,
   listAuditPages,
 } from "@/server/features/audit/repositories/auditResultsQueries";
 import { AppError } from "@/server/lib/errors";
+import { readStoredLighthousePayload } from "@/server/lib/lighthousePayload";
 import { captureServerEvent } from "@/server/lib/posthog";
+import { runAfterResponse } from "@/server/lib/background";
+import { getJsonFromR2 } from "@/server/lib/r2";
 import {
   AUDIT_ISSUE_TYPES,
+  CRAWL_STOP_ISSUE_TYPES,
   getIssueDescriptor,
   ISSUE_SEVERITY_ORDER,
 } from "@/shared/audit-issues";
@@ -100,7 +105,7 @@ export const runSiteAuditTool = {
   config: {
     title: "Run site audit",
     description:
-      "Start a site audit: crawls the site (robots.txt-aware, same-origin), checks every page for SEO issues (broken links, duplicate/missing titles and descriptions, redirect chains, orphan pages, canonical problems, thin content, and more), and optionally runs Lighthouse on a sample of pages. Runs in the background — poll get_audit_status, then read get_audit_issues. If the site rate limits the crawler it slows down and retries; pages it still cannot read are honestly flagged as blocked or rate-limited rather than misreported.",
+      "Start a site audit: crawls the site (robots.txt-aware, same-origin) and checks every page for SEO issues such as broken links, duplicate or missing titles and descriptions, redirect chains, orphan pages, canonical problems, and thin content. Optionally runs Lighthouse on a sample of pages. If the site rate limits the crawler it slows down and retries; pages it still cannot read are flagged as blocked or rate-limited rather than misreported. The audit runs in the background: poll get_audit_status, then read the findings with get_audit_issues.",
     inputSchema: runInputSchema,
     outputSchema: z
       .object({
@@ -169,18 +174,20 @@ export const runSiteAuditTool = {
       throw error;
     }
 
-    await captureServerEvent({
-      distinctId: context.auth.userId,
-      event: "site_audit:start",
-      organizationId: context.auth.organizationId,
-      properties: {
-        project_id: args.projectId,
-        max_pages: maxPages,
-        requested_max_pages: requestedPages,
-        run_lighthouse: lighthouseStrategy !== "none",
-        source: "mcp",
-      },
-    });
+    await runAfterResponse(
+      captureServerEvent({
+        distinctId: context.auth.userId,
+        event: "site_audit:start",
+        organizationId: context.auth.organizationId,
+        properties: {
+          project_id: args.projectId,
+          max_pages: maxPages,
+          requested_max_pages: requestedPages,
+          run_lighthouse: lighthouseStrategy !== "none",
+          source: "mcp",
+        },
+      }),
+    );
 
     const capNote =
       maxPages < requestedPages
@@ -213,7 +220,7 @@ export const getAuditStatusTool = {
   config: {
     title: "Get site audit status",
     description:
-      "Check the progress of a site audit (phase, pages crawled, Lighthouse progress). Free — reads OpenSEO state and may reconcile a dead workflow by marking its audit failed. Omit auditId for the most recent audit.",
+      "Check the progress of a site audit: phase, pages crawled, and Lighthouse progress. Omit auditId for the most recent audit. An audit whose run has died is marked failed. Uses no credits. When the audit has finished, read it with get_audit_issues and get_audit_pages.",
     inputSchema: statusInputSchema,
     outputSchema: z
       .object({
@@ -237,22 +244,35 @@ export const getAuditStatusTool = {
       status.lighthouseTotal > 0
         ? `, lighthouse ${status.lighthouseCompleted + status.lighthouseFailed}/${status.lighthouseTotal}`
         : "";
+    // A completed audit can still have stopped with URLs left unvisited. Say
+    // so here, or "completed" reads as "the whole site".
+    const crawlStop =
+      status.status === "completed"
+        ? (await getAuditIssueGroups(status.id)).find((group) =>
+            CRAWL_STOP_ISSUE_TYPES.some((type) => type === group.issueType),
+          )?.issueType
+        : undefined;
+    const partialNote = crawlStop
+      ? ` ${getIssueDescriptor(crawlStop)?.title}, so the results cover part of the site.`
+      : "";
     // Failed audits keep partial results — point agents at them instead of
     // letting a mid-crawl death read as "no data".
     const nextStep =
       status.status === "completed"
-        ? " Call get_audit_issues for the issue report."
+        ? ` Call get_audit_issues for the issue report${status.lighthouseTotal > 0 ? " and get_audit_lighthouse for the Lighthouse results" : ""}.`
         : status.status === "failed" && status.pagesCrawled > 0
           ? ` The audit stopped early but kept results for the ${status.pagesCrawled} pages it crawled — call get_audit_issues for the partial issue report.`
           : "";
     return mcpResponse({
-      text: `Audit ${status.id} (${status.startUrl}): ${status.status}${status.errorCode ? ` (${status.errorCode})` : ""} — phase ${status.currentPhase}, ${status.pagesCrawled}/${status.pagesTotal} pages${lighthouseNote}.${nextStep}`,
+      text: `Audit ${status.id} (${status.startUrl}): ${status.status}${status.errorCode ? ` (${status.errorCode})` : ""} — phase ${status.currentPhase}, ${status.pagesCrawled}/${status.pagesTotal} pages${lighthouseNote}.${partialNote}${nextStep}`,
       meta: buildProjectMeta(
         context,
         args.projectId,
         auditPath(args.projectId, status.id),
       ),
-      structuredContent: { status },
+      structuredContent: {
+        status: { ...status, crawlStop: crawlStop ?? null },
+      },
     });
   }),
 };
@@ -318,7 +338,7 @@ export const getAuditIssuesTool = {
   config: {
     title: "Get site audit issues",
     description:
-      "Read the prioritized issue report from a completed site audit. Every issue carries a how_to_fix with concrete remediation steps an agent can act on. Free — reads OpenSEO state. Omit auditId for the most recent audit.",
+      "Read the prioritized issue report from a completed site audit. Every issue carries a how_to_fix with concrete remediation steps an agent can act on. Filter by severity or issueType; omit auditId for the most recent audit. Uses no credits. For per-page data on every crawled page, use get_audit_pages.",
     inputSchema: issuesInputSchema,
     outputSchema: z
       .object({
@@ -552,7 +572,7 @@ export const getAuditPagesTool = {
   config: {
     title: "Get site audit pages",
     description:
-      "List crawled pages from a site audit with per-page SEO data (status, title, description, word count, indexability, crawl depth, link counts). Free — reads OpenSEO state. Omit auditId for the most recent audit.",
+      "List the pages a site audit crawled, with per-page SEO data: status, title, description, word count, indexability, crawl depth, and link counts. Filter and sort the rows; omit auditId for the most recent audit. Uses no credits. For the prioritized problems and how to fix them, use get_audit_issues.",
     inputSchema: pagesInputSchema,
     outputSchema: z
       .object({
@@ -610,6 +630,218 @@ export const getAuditPagesTool = {
         auditPath(args.projectId, audit.id),
       ),
       structuredContent: { pages, total, page },
+    });
+  }),
+};
+
+// ─── get_audit_lighthouse ────────────────────────────────────────────────────
+
+// Lighthouse names up to ten resources per issue, some with long DOM paths.
+// Each issue keeps a short sample so one page's result stays a size clients
+// can read; itemCount says how many there were.
+const LIGHTHOUSE_ITEM_SAMPLE_SIZE = 3;
+const lighthouseItemCell = truncatedCell(200);
+
+const lighthouseInputSchema = {
+  projectId: projectIdSchema,
+  auditId: auditIdSchema,
+  url: z
+    .string()
+    .max(2048)
+    .optional()
+    .describe(
+      "A tested page's URL, exactly as the results list it. Returns that page's result for one device, with the issues Lighthouse found.",
+    ),
+  device: z
+    .enum(["mobile", "desktop"])
+    .optional()
+    .describe(
+      "Only return this device's results. With url, defaults to mobile.",
+    ),
+} as const;
+
+type LighthouseArgs = z.infer<z.ZodObject<typeof lighthouseInputSchema>>;
+
+type LighthouseRow = Awaited<
+  ReturnType<typeof listAuditLighthouseResults>
+>[number];
+
+function toLighthouseResult(row: LighthouseRow) {
+  return {
+    url: row.pageUrl,
+    device: row.strategy,
+    performanceScore: row.performanceScore,
+    accessibilityScore: row.accessibilityScore,
+    bestPracticesScore: row.bestPracticesScore,
+    seoScore: row.seoScore,
+    lcpMs: row.lcpMs,
+    cls: row.cls,
+    inpMs: row.inpMs,
+    ttfbMs: row.ttfbMs,
+    error: row.errorMessage,
+  };
+}
+
+type LighthouseResult = ReturnType<typeof toLighthouseResult>;
+
+const roundedCell = (value: unknown) =>
+  typeof value === "number" ? String(Math.round(value)) : "—";
+
+const LIGHTHOUSE_COLUMNS: McpTableColumn<LighthouseResult>[] = [
+  { header: "url", value: (result) => result.url },
+  { header: "device", value: (result) => result.device },
+  { header: "performance", value: (result) => result.performanceScore },
+  { header: "accessibility", value: (result) => result.accessibilityScore },
+  { header: "best practices", value: (result) => result.bestPracticesScore },
+  { header: "seo", value: (result) => result.seoScore },
+  { header: "lcp ms", value: (result) => result.lcpMs, format: roundedCell },
+  {
+    header: "cls",
+    value: (result) => result.cls,
+    format: (value) => (typeof value === "number" ? value.toFixed(3) : "—"),
+  },
+  { header: "inp ms", value: (result) => result.inpMs, format: roundedCell },
+  { header: "ttfb ms", value: (result) => result.ttfbMs, format: roundedCell },
+  { header: "error", value: (result) => result.error },
+];
+
+/** The issues Lighthouse found on one tested page, largest savings first. */
+async function readLighthouseIssues(row: LighthouseRow) {
+  // A failed test stored no report.
+  if (!row.r2Key) return { hasIssueDetails: false, issues: [] };
+  const { report } = readStoredLighthousePayload(
+    await getJsonFromR2(row.r2Key),
+  );
+  return {
+    hasIssueDetails: report.hasIssueDetails,
+    issues: report.issues.map((issue) => ({
+      ...issue,
+      items: issue.items
+        .slice(0, LIGHTHOUSE_ITEM_SAMPLE_SIZE)
+        .map(lighthouseItemCell),
+      itemCount: issue.items.length,
+    })),
+  };
+}
+
+type LighthouseIssues = Awaited<ReturnType<typeof readLighthouseIssues>>;
+
+function formatLighthouseIssues(
+  result: LighthouseResult,
+  { hasIssueDetails, issues }: LighthouseIssues,
+) {
+  if (result.error) return `Lighthouse failed on this page: ${result.error}`;
+  if (!hasIssueDetails) {
+    return "This Lighthouse run was saved without issue details. Run the audit again to see them.";
+  }
+  if (issues.length === 0) return "Lighthouse found no issues on this page.";
+  return [
+    `${issues.length} issue${issues.length === 1 ? "" : "s"}, largest savings first:`,
+    ...issues.flatMap((issue) => {
+      const savings = [
+        issue.impactMs ? `${Math.round(issue.impactMs)} ms` : null,
+        issue.impactBytes
+          ? `${Math.round(issue.impactBytes / 1024)} KiB`
+          : null,
+      ].filter((part) => part !== null);
+      const more = issue.itemCount - issue.items.length;
+      return [
+        `[${issue.severity}] ${issue.title} (${issue.category})${issue.displayValue ? `: ${issue.displayValue}` : ""}${savings.length > 0 ? `; saves ${savings.join(", ")}` : ""}`,
+        ...issue.items.map((item) => `  - ${item}`),
+        more > 0 ? `  …and ${more} more.` : null,
+      ].filter((line) => line !== null);
+    }),
+  ].join("\n");
+}
+
+export const getAuditLighthouseTool = {
+  name: "get_audit_lighthouse",
+  config: {
+    title: "Get site audit Lighthouse results",
+    description:
+      "Get the Lighthouse results from a site audit: performance, accessibility, best practices and SEO scores (0–100) plus LCP, CLS, INP and TTFB for each tested page, on mobile and desktop. Pass url for one page's issues, largest savings first, with the resources behind them. Omit auditId for the most recent audit; an audit has results only when it ran with Lighthouse on. Uses no credits. For crawl issues such as broken links and missing titles, use get_audit_issues.",
+    inputSchema: lighthouseInputSchema,
+    outputSchema: z
+      .object({
+        auditId: z.string(),
+        results: z.array(looseObjectOutputSchema),
+        ...optionalMetaOutputSchema,
+      })
+      .passthrough(),
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+      destructiveHint: false,
+    },
+  },
+  handler: withMcpProjectAuth(async (args: LighthouseArgs, context) => {
+    const audit = await resolveAudit(args.projectId, args.auditId);
+    const meta = buildProjectMeta(
+      context,
+      args.projectId,
+      auditPath(args.projectId, audit.id),
+    );
+    const tested = sortBy(
+      await listAuditLighthouseResults(audit.id),
+      (row) => row.pageUrl ?? "",
+      (row) => row.strategy,
+    );
+    if (tested.length === 0) {
+      return mcpResponse({
+        text:
+          audit.lighthouseTotal === 0
+            ? `Audit ${audit.id} ran without Lighthouse, so it has no results. Call list_site_audits to find an audit that ran it, or start one with run_site_audit and runLighthouse: true.`
+            : `Audit ${audit.id} has no Lighthouse results yet. get_audit_status shows its progress.`,
+        meta,
+        structuredContent: { auditId: audit.id, results: [] },
+      });
+    }
+
+    if (!args.url) {
+      const results = tested
+        .filter((row) => !args.device || row.strategy === args.device)
+        .map(toLighthouseResult);
+      return mcpResponse({
+        text: [
+          `Audit ${audit.id} (${audit.startUrl}): ${results.length} Lighthouse result${results.length === 1 ? "" : "s"}. Scores are 0–100.${audit.status === "running" ? " The audit is still running, so more results may follow." : ""}`,
+          formatMcpTable(results, LIGHTHOUSE_COLUMNS),
+          "Pass url to list the issues Lighthouse found on a page.",
+        ].join("\n"),
+        meta,
+        structuredContent: { auditId: audit.id, results },
+      });
+    }
+
+    // One device per call: a page's two issue lists together can pass the
+    // size many clients accept from one tool result.
+    const device = args.device ?? "mobile";
+    const row = tested.find(
+      (candidate) =>
+        candidate.pageUrl === args.url && candidate.strategy === device,
+    );
+    if (!row) {
+      const testedUrls = [
+        ...new Set(tested.map((candidate) => candidate.pageUrl)),
+      ];
+      throw new AppError(
+        "NOT_FOUND",
+        `Lighthouse has no ${device} result for ${args.url} in audit ${audit.id}. It tested: ${testedUrls.join(", ")}.`,
+      );
+    }
+    const report = await readLighthouseIssues(row);
+    const result = toLighthouseResult(row);
+    return mcpResponse({
+      text: [
+        `Audit ${audit.id} (${audit.startUrl}): Lighthouse on ${args.url}, ${device}. Scores are 0–100.`,
+        formatMcpTable([result], LIGHTHOUSE_COLUMNS),
+        formatLighthouseIssues(result, report),
+        `Pass device: "${device === "mobile" ? "desktop" : "mobile"}" for the other run of this page.`,
+      ].join("\n"),
+      meta,
+      structuredContent: {
+        auditId: audit.id,
+        results: [{ ...result, issues: report.issues }],
+      },
     });
   }),
 };

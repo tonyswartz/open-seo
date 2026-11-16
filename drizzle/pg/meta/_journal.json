@@ -358,6 +358,27 @@
       "when": 1793950089330,
       "tag": "0050_guest_claimed_by",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794425608859,
+      "tag": "0051_ai_mode_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794438904256,
+      "tag": "0052_trustpilot_invited_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794544102556,
+      "tag": "0053_stripe_projects_provider",
+      "breakpoints": true
     }
   ]
 }

@@ -87,6 +87,9 @@ const SHIPPED_SQLITE_MIGRATIONS = [
   "0071_guest_account_slots",
   "0072_signup_sources",
   "0073_guest_claimed_by",
+  "0074_ai_mode_engine",
+  "0075_trustpilot_invited_at",
+  "0076_stripe_projects_provider",
 ];
 
 type Journal = { entries: { idx: number; when: number; tag: string }[] };

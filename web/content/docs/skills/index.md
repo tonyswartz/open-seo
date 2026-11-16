@@ -13,12 +13,9 @@ No account yet? Try the [free SEO tools](/tools).
 
 ## Set up OpenSEO Agent Skills
 
-On Claude Code and Claude Cowork, the [OpenSEO plugin](/docs/claude-code-plugin) installs MCP and every skill below in one step. On Codex CLI, the [OpenSEO plugin](/docs/codex-plugin) does the same. Use the manual steps here for other agents, or if you want to pick individual skills.
-
-1. [Set up OpenSEO MCP](/docs/mcp).
-2. [Set up OpenSEO Agent Skills](/docs/skills/setup).
-
 MCP connects your agent to OpenSEO data. Skills tell your agent which SEO workflow to run.
+
+The OpenSEO plugins for Claude, ChatGPT and Codex include the skills. Connectors and MCP connections don't. [Install skills](/docs/skills/setup) shows how to check what your agent has and how to add the skills to any agent.
 
 ## Start here
 
@@ -61,4 +58,4 @@ OpenSEO uses the same `SKILL.md` pattern supported by modern AI agents. To learn
 
 These pages explain what each skill is for. The source instructions live in GitHub:
 
-- [OpenSEO Agent Skills on GitHub](https://github.com/every-app/open-seo/tree/main/.agents/skills)
+- [OpenSEO Agent Skills on GitHub](https://github.com/every-app/open-seo/tree/main/plugins/openseo/skills)
