@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- the one Better Auth configuration: every hook and plugin lives here */
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { betterAuth } from "better-auth";
 import {
   APIError,
@@ -30,6 +30,12 @@ import { onInvitationAccepted } from "@/server/auth/invited-member";
 import { AuthRepository } from "@/server/auth/repositories/AuthRepository";
 import { GoogleAccountService } from "@/server/features/google/GoogleAccountService";
 import { assertStandaloneSignUpOpen } from "@/server/standalone/sign-up";
+import {
+  assertChatGptSignInOffered,
+  assertChatGptSignUpEmailVerified,
+  chatGptSignInPlugins,
+} from "@/server/auth/chatgpt-sign-in";
+import { stripeProjectsLoginPlugin } from "@/server/stripe-projects/login-plugin";
 import { captureDubReferralSignup } from "@/server/referrals/dub";
 import {
   captureMetaSetupStep,
@@ -49,6 +55,7 @@ import { assertNotScheduledForDeletion } from "@/server/account-deletion/signInB
 import { claimGuestFromCookie } from "@/server/auth/guest-accounts";
 import { RETURNING_BROWSER_COOKIE } from "@/server/auth/guest-cookies";
 import { isGuestEmail } from "@/shared/guest-account";
+import { runAfterResponse } from "@/server/lib/background";
 import {
   sendHostedPasswordResetEmail,
   sendHostedVerificationEmail,
@@ -228,6 +235,17 @@ function createAuth() {
     // guessing against /sign-in/email was unlimited there. The memory store
     // is enough: the runtime keeps the app alive between requests.
     ...(standalone ? { rateLimit: { enabled: true } } : {}),
+    advanced: {
+      ...baseAuthConfig.advanced,
+      // Hosted only, where every Better Auth route runs in a Workers request:
+      // reset and verification emails send after the response instead of
+      // holding it. Better Auth logs and swallows a failed send either way.
+      // Waiting on the send also made /request-password-reset answer
+      // measurably slower for an existing account than for an unknown email.
+      ...(isHostedAuthMode(env.AUTH_MODE)
+        ? { backgroundTasks: { handler: waitUntil } }
+        : {}),
+    },
     emailAndPassword: {
       ...baseAuthConfig.emailAndPassword,
       requireEmailVerification: !bypassEmail,
@@ -259,8 +277,8 @@ function createAuth() {
           },
         },
     socialProviders: getSocialProviders(),
-    // Where Google sign-in failures land (canceled consent screen, replayed
-    // callback URLs). Without this the default /api/auth/error page 302s to
+    // Where Google and ChatGPT sign-in failures land (canceled consent screen,
+    // replayed callback URLs). Without this the default /api/auth/error page 302s to
     // `/?error=...` and the dashboard silently discards the code. Self-hosted
     // never serves social sign-in, so the placeholder baseUrl there is
     // harmless.
@@ -270,6 +288,8 @@ function createAuth() {
     plugins: [
       ...baseAuthConfig.plugins,
       ...(usesBetterAuth(env.AUTH_MODE) ? [createApiKeyPlugin()] : []),
+      ...(isHostedAuthMode(env.AUTH_MODE) ? chatGptSignInPlugins(env) : []),
+      ...(isHostedAuthMode(env.AUTH_MODE) ? [stripeProjectsLoginPlugin()] : []),
       ...(turnstileSecretKey
         ? [
             captcha({
@@ -287,6 +307,8 @@ function createAuth() {
         if (standalone && ctx.path === "/sign-up/email")
           return assertStandaloneSignUpOpen(ctx.headers, ctx.body);
 
+        await assertChatGptSignInOffered(env, ctx);
+
         // Binds a new MCP API key to the organization the session is working
         // in, server-side: the /mcp handler reads metadata.organizationId and
         // bills/authorizes that org for the key's lifetime. The session's
@@ -303,6 +325,12 @@ function createAuth() {
         // no memory, so every one would re-send it and hit Loops' team-wide
         // rate limit.
         if (ctx.path !== "/api-key/create") return;
+        // A server-side auth.api.createApiKey call (no request, no headers) is
+        // trusted code that names the user and stamps metadata itself: the
+        // Stripe Projects provider (server/stripe-projects/service.ts). The
+        // plugin uses the same test to tell server calls apart, and refuses a
+        // client-supplied userId on any call that has a request.
+        if (!ctx.request && !ctx.headers) return;
         // Minting a credential must see the stored session, not the cookie
         // cache: a cookie from a session revoked minutes ago must not mint a
         // key that outlives the revocation. The plugin reuses this lookup.
@@ -381,13 +409,15 @@ function createAuth() {
                 message: "Please sign up with a non-disposable email address.",
               });
             }
+            assertChatGptSignUpEmailVerified(user, ctx?.path);
             // Start new accounts with the analytics choice that applies to
             // this browser, so server-side analytics doesn't run for a
             // visitor who hasn't opted in where opt-in is required.
             const choices = requestPrivacyChoices(ctx?.request);
             const now = new Date();
-            // Every hosted signup path (email form, Google on the sign-up or
-            // sign-in page) shows the Terms clickwrap next to its button.
+            // Every hosted signup path (email form, Google or ChatGPT on the
+            // sign-up or sign-in page) shows the Terms clickwrap next to its
+            // button.
             return {
               data: {
                 ...user,
@@ -403,7 +433,8 @@ function createAuth() {
           },
           after: async (user, ctx) => {
             if (isHostedAuthMode(env.AUTH_MODE)) {
-              await syncHostedSignupContact(user);
+              // Contact upserts can't race the onboarding drip's later ones.
+              await runAfterResponse(syncHostedSignupContact(user));
               // Partner attribution is a referral choice: an older dub_id
               // cookie must not credit a partner without it.
               if (requestPrivacyChoices(ctx?.request).referrals) {

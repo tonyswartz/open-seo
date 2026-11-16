@@ -31,6 +31,7 @@ import { describeError } from "@/server/lib/errors";
 import {
   estimateRankCheckCredits,
   MAX_READS_PER_CHECK,
+  RANK_CHECK_DELAYED_ERROR,
   rankCheckCostApprovalError,
   VALIDATED_CRAWLS_PER_PAIR,
 } from "@/shared/rank-tracking";
@@ -474,7 +475,11 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
           // repeat reads below, whose results could not be checked.
           queueStats = await runValidatedCheck(step, checkContext);
         } else {
-          await runQueuedCheck(step, checkContext);
+          // Shown only if no keyword gets a result: a run that got some reports
+          // the rest as not checked.
+          if (await runQueuedCheck(step, checkContext)) {
+            batchError = RANK_CHECK_DELAYED_ERROR;
+          }
           await retryRankChecks(
             step,
             checkContext,

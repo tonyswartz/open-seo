@@ -1,6 +1,8 @@
+/* eslint-disable max-lines -- fork validated-run cases beside upstream's workflow cases */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowStep } from "cloudflare:workers";
 import { AUTUMN_SEO_DATA_BALANCE_FEATURE_ID } from "@/shared/billing";
+import { RANK_CHECK_DELAYED_ERROR } from "@/shared/rank-tracking";
 import { RankCheckWorkflow } from "./RankCheckWorkflow";
 
 const mocks = vi.hoisted(() => ({
@@ -289,6 +291,20 @@ describe("rank check finalization", () => {
       }),
     );
     expect(mocks.updateConfig).toHaveBeenCalled();
+  });
+
+  it("says the provider was delayed when no task left its queue", async () => {
+    mocks.runQueuedCheck.mockResolvedValueOnce(true);
+
+    await runWorkflow({});
+
+    expect(mocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: RANK_CHECK_DELAYED_ERROR,
+      }),
+    );
   });
 
   it("keeps the failure when stale cleanup fails the run before it finalizes", async () => {

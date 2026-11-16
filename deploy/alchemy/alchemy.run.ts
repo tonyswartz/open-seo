@@ -308,6 +308,9 @@ const dataEnv = {
   GOOGLE_CLIENT_SECRET: optionalSecret("GOOGLE_CLIENT_SECRET"),
   GOOGLE_ADS_DEVELOPER_TOKEN: optionalSecret("GOOGLE_ADS_DEVELOPER_TOKEN"),
   GOOGLE_MAPS_API_KEY: optionalSecret("GOOGLE_MAPS_API_KEY"),
+  // Sign in with ChatGPT (hosted only). Unset = no button.
+  OPENAI_SIWC_CLIENT_ID: optionalVar("OPENAI_SIWC_CLIENT_ID"),
+  OPENAI_SIWC_CLIENT_SECRET: optionalSecret("OPENAI_SIWC_CLIENT_SECRET"),
   OPENROUTER_API_KEY: optionalSecret("OPENROUTER_API_KEY"),
   OPENROUTER_BASE_URL: optionalVar("OPENROUTER_BASE_URL"),
   OPENROUTER_MODEL: optionalVar("OPENROUTER_MODEL"),
@@ -315,6 +318,9 @@ const dataEnv = {
   AUTUMN_SECRET_KEY: optionalSecret("AUTUMN_SECRET_KEY"),
   AUTUMN_WEBHOOK_SECRET: optionalSecret("AUTUMN_WEBHOOK_SECRET"),
   DUB_API_KEY: optionalSecret("DUB_API_KEY"),
+  STRIPE_PROJECTS_SIGNING_SECRET: optionalSecret(
+    "STRIPE_PROJECTS_SIGNING_SECRET",
+  ),
   META_PIXEL_ID: optionalVar("META_PIXEL_ID"),
   META_CONVERSIONS_API_TOKEN: optionalSecret("META_CONVERSIONS_API_TOKEN"),
   LOOPS_API_KEY: optionalSecret("LOOPS_API_KEY"),
@@ -339,6 +345,12 @@ const dataEnv = {
   ),
   TURNSTILE_SECRET_KEY: optionalSecret("TURNSTILE_SECRET_KEY"),
   TURNSTILE_SITE_KEY: optionalVar("TURNSTILE_SITE_KEY"),
+  // Trustpilot review invitations (src/server/trustpilot). Unset = inert.
+  TRUSTPILOT_API_KEY: optionalSecret("TRUSTPILOT_API_KEY"),
+  TRUSTPILOT_API_SECRET: optionalSecret("TRUSTPILOT_API_SECRET"),
+  TRUSTPILOT_BUSINESS_UNIT_ID: optionalVar("TRUSTPILOT_BUSINESS_UNIT_ID"),
+  TRUSTPILOT_BUSINESS_USER_ID: optionalVar("TRUSTPILOT_BUSINESS_USER_ID"),
+  TRUSTPILOT_TEMPLATE_ID: optionalVar("TRUSTPILOT_TEMPLATE_ID"),
   // Alchemy reconciles worker vars and secrets on every deploy, so every value
   // must come from the env file / GitHub environment — a dashboard-set one
   // would be wiped.

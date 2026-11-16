@@ -85,6 +85,12 @@ const inputSchema = {
     .describe(
       "How many Google results to read per keyword — a multiple of 10 from 10 to 100, default 10 (page 1). Merging the reads usually returns more sites than this. Google has no offset, so a deeper read re-fetches the top too: each additional 10 adds ~3.5 credits per keyword. Only raise it when you need ranks past page 1.",
     ),
+  finalUrls: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set true to get each result's page URL instead of a google.com/goto redirect. The search then takes a few minutes instead of seconds: the first call starts it and answers that it is still running, and the same call again 2-3 minutes later returns the results at no extra charge. For batch jobs, not while someone waits. Costs about half the credits.",
+    ),
 } as const;
 
 type Args = z.infer<z.ZodObject<typeof inputSchema>>;
@@ -94,7 +100,7 @@ export const getSerpResultsTool = {
   config: {
     title: "Get Google SERP results",
     description:
-      "Fetch live Google organic search results for 1-10 keywords. Use this to inspect who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Google serves automated readers pages that vary and are sometimes wrong, so each keyword is read 3 times and merged into one row per site, usually about 15 sites at the default depth 10. Expect 10-30 seconds. The sites the reads agree on come first, and `rank` numbers them 1 to n in that order, so it isn't a Google position. `bestPosition` is the best organic position any read gave the site, the same way the rank tracker reports it: quote that as a site's position. It can repeat or jump around from row to row, because the rows aren't one page Google served. `seenIn` says how many reads showed a row, so a site seen once is weak evidence. SERP features follow the organic rows, with no `rank` or `bestPosition`. Results still vary between calls, so use rank tracking or Search Console for a site's position over time. `url` can be a google.com/goto redirect that a plain fetch won't follow; `domain` is the reliable field. Charges credits per keyword: ~5 each at the default depth 10, and each additional 10 of depth adds ~3.5. A keyword fetched in this project in the last 12 hours with the same market, device, and depth collects those same reads again at no charge, so if a response is lost or a keyword is still running, wait a minute and repeat the same call; only a keyword whose reads all failed or came back empty is read and charged again. Per-keyword errors don't fail the batch.",
+      "Get live Google organic search results for 1-10 keywords. Use it to see who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Google serves automated readers pages that vary, so each keyword is read 3 times and merged into one row per site; expect 10-30 seconds. Quote bestPosition as a site's position: `rank` only numbers the merged rows, and a site with seenIn 1 is weak evidence. `url` can be a google.com/goto redirect that a plain fetch won't follow; `domain` is the reliable field, and finalUrls returns the page URLs for a job that can wait a few minutes. Costs ~5 credits per keyword at the default depth 10, and each additional 10 of depth adds ~3.5. Repeating the same call within 12 hours returns the same reads at no charge, so if a response is lost or a keyword is still running, wait a minute and repeat it. Per-keyword errors don't fail the batch. For a site's position over time, use get_rank_tracker or get_search_console_performance.",
     inputSchema,
     outputSchema: serpSchema,
     annotations: {
@@ -126,6 +132,7 @@ export const getSerpResultsTool = {
               locationName: q.locationName,
               depth,
               device,
+              finalUrls: args.finalUrls,
             },
             receiptKey: await buildCacheKey("mcp:serp-reads", {
               organizationId: context.billing.organizationId,
@@ -135,6 +142,8 @@ export const getSerpResultsTool = {
               locationName: q.locationName,
               depth,
               device,
+              // Only when set, so a call without it keeps its receipt key.
+              ...(args.finalUrls && { finalUrls: true }),
             }),
           };
         } catch (error) {
@@ -166,8 +175,9 @@ export const getSerpResultsTool = {
         return {
           keyword: lookup.keyword,
           ok: false as const,
-          error:
-            "This search is still running. Call get_serp_results again with the same arguments in about a minute to collect it at no extra charge.",
+          error: args.finalUrls
+            ? "Reading final URLs takes a few minutes. Call get_serp_results again with the same arguments in 2-3 minutes to collect this search at no extra charge."
+            : "This search is still running. Call get_serp_results again with the same arguments in about a minute to collect it at no extra charge.",
         };
       }
       return {

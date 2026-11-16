@@ -91,9 +91,9 @@ describe("OpenSEO's tools on the Every App gateway", () => {
     expect(response.status).toBe(200);
     const catalog = await response.json<ToolsListResponseV1>();
     expect(catalog.warnings ?? []).toEqual([]);
-    // Fork: upstream's 83 tools plus the fork's seven (delete_rank_tracker,
+    // Fork: upstream's 84 tools plus the fork's seven (delete_rank_tracker,
     // SEO history, Local Services Ads).
-    expect(catalog.tools).toHaveLength(90);
+    expect(catalog.tools).toHaveLength(91);
     expect(catalog.instructions?.length).toBeLessThanOrEqual(1024);
     for (const tool of catalog.tools) {
       expect(tool.description.length, tool.name).toBeLessThanOrEqual(2048);

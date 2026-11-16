@@ -34,6 +34,7 @@ import {
   workersOAuthMcpPropsSchema,
 } from "@/server/mcp/context";
 import { handleOAuthError } from "@/server/mcp/oauth-errors";
+import { asksForChatGptSignIn } from "@/shared/chatgpt-sign-in";
 import { normalizeClientRegistrationRequest } from "@/server/mcp/oauth-registration";
 import { resolveHostedContext } from "@/middleware/ensure-user/hosted";
 import { handleMcpApiKeyRequest } from "@/server/mcp/api-key-auth";
@@ -106,6 +107,9 @@ async function getAuthorizeSessionBlocker(
   } catch (error) {
     const appError = asAppError(error);
     if (appError?.code === "UNAUTHENTICATED") {
+      // The person chose "Continue with ChatGPT" in ChatGPT's connect window,
+      // so no guest account stands in: the sign-in page starts it for them.
+      if (asksForChatGptSignIn(request.url)) return redirectToSignIn(request);
       // No session: an eligible browser gets a guest account instead of the
       // sign-in page (src/server/auth/guest-accounts.ts). A failed check
       // (database, feature flag) must never block the normal sign-in.
@@ -260,6 +264,22 @@ export function getCapturedOAuthHelpers() {
     throw new Error("OAuth provider helpers are unavailable");
   }
   return oauthHelpers;
+}
+
+// What the consent screen shows about the request it approves. Parsing checks
+// the client and its redirect address the same way approving does, so the
+// screen never names an address the approval would refuse.
+export async function getConsentRequest(request: Request, query: string) {
+  const oauth = getCapturedOAuthHelpers();
+  const authRequest = await oauth.parseAuthRequest(
+    buildAuthorizeRequestFromConsentQuery(request, query),
+  );
+  const client = await oauth.lookupClient(authRequest.clientId);
+  return {
+    // Self-reported, and optional when a client registers.
+    clientName: client?.clientName,
+    redirectUri: authRequest.redirectUri,
+  };
 }
 
 function createDefaultHandler(
