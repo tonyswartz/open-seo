@@ -84,6 +84,7 @@ import {
 } from "@/server/mcp/tools/project-context";
 import { listSavedKeywordsTool } from "@/server/mcp/tools/list-saved-keywords";
 import { removeSavedKeywordsTool } from "@/server/mcp/tools/remove-saved-keywords";
+import { updateAiResearchKeywordsTool } from "@/server/mcp/tools/update-ai-research-keywords";
 import {
   findSerpCompetitorsTool,
   getGoogleBusinessQuestionsTool,
@@ -138,7 +139,7 @@ import { whoamiTool } from "@/server/mcp/tools/whoami";
 import { explorePromptTool } from "@/server/mcp/tools/explore-prompt";
 import { registerWidgetResource } from "@/server/mcp/widget-resource";
 import { rememberWidgetResult } from "@/server/mcp/widget-results";
-import { WidgetTool } from "@/shared/mcp-contracts";
+import { MCP_WIDGET_TOOLS } from "@/shared/mcp-contracts";
 import {
   showSearchConsolePerformanceTool,
   showSerpResultsTool,
@@ -171,7 +172,7 @@ export type OpenSeoToolDefinition<Input extends ToolSchema> = {
   ) => CallToolResult | Promise<CallToolResult>;
 };
 
-const widgetToolName = z.enum(WidgetTool);
+const widgetToolName = z.enum(MCP_WIDGET_TOOLS);
 
 type ToolSchemas = {
   // Handed to the SDK, which converts them to JSON Schema for tools/list.
@@ -292,6 +293,7 @@ export function registerOpenSeoTools(
   register(generateAiVisibilityPromptsTool);
   register(researchAiVisibilityPromptsTool);
   register(completeAiResearchSetupTool);
+  register(updateAiResearchKeywordsTool);
   register(saveAiVisibilityTrackerTool);
   register(estimateAiVisibilityCostTool);
   register(setAiVisibilityScheduleTool);

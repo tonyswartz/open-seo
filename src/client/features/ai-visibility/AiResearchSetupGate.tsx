@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { AiMentionIllustration } from "@/client/components/EmptyIllustrations";
 import { Alert, AlertDescription } from "@/client/components/ui/alert";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent } from "@/client/components/ui/card";
@@ -173,15 +173,15 @@ export function AiResearchSetupGate({
         <Card className="w-full max-w-2xl py-6 md:py-8">
           <CardContent className="space-y-6 px-6 md:px-8">
             <div>
-              <div className="mb-4 flex size-10 items-center justify-center rounded-lg border border-border bg-muted">
-                <Sparkles className="size-5" />
+              <div className="mb-4">
+                <AiMentionIllustration />
               </div>
               <h1 className="text-2xl font-semibold tracking-tight">
-                Set up AI visibility
+                See when AI recommends you
               </h1>
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                We’ll research your brand and find the most relevant topics to
-                monitor.
+                We’ll research your brand, suggest the questions your customers
+                ask AI, and track which answers mention or cite you.
               </p>
             </div>
             {getErrorCode(start.error) === "INSUFFICIENT_CREDITS" ? (
@@ -195,7 +195,7 @@ export function AiResearchSetupGate({
                       : !start.isError && data.failure === "subrequest_limit"
                         ? "Setup needs more outgoing requests than Cloudflare Workers Free allows (50). Upgrade to Workers Paid or run the Docker edition, then try again."
                         : isEveryAppClientAuthMode()
-                          ? "We couldn’t finish setting up AI visibility. It needs DataForSEO and OpenRouter on your Every App gateway: if they aren’t set up yet, an owner or admin runs pnpm everyapp secret set DATAFORSEO_API_KEY OPENROUTER_API_KEY. Then try again."
+                          ? "We couldn’t finish setting up AI visibility. It needs DataForSEO and OpenRouter on your Every App gateway: if they aren’t set up yet, an owner or admin runs pnpm everyapp secret set DATAFORSEO_API_KEY OPENROUTER_API_KEY (or TREG_API_TOKEN in place of DATAFORSEO_API_KEY). Then try again."
                           : "We couldn’t finish setting up AI visibility. Try again."}
                   </AlertDescription>
                 </Alert>

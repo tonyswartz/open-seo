@@ -343,6 +343,10 @@ export async function postRankCheckTasks(input: {
       os: task.device === "desktop" ? "windows" : "android",
       depth,
       ...(input.targetDomain ? stopCrawlOnTarget(input.targetDomain) : {}),
+      // DataForSEO checks the page against Google's plain web results and
+      // swaps in those results when Google served a poisoned page. Costs one
+      // more standard-queue page per task, poisoned or not.
+      resolve_poisoned_results: true,
       // Echoed back on the response entry and task_get; used to map a
       // DataForSEO task id back to our keyword without relying on order.
       tag: `${task.keywordId}:${task.device}`,

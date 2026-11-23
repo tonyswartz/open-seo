@@ -1,10 +1,10 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
-import type { RankCheckTaskInput } from "@/server/lib/dataforseo";
-import {
-  MAX_READS_PER_CHECK,
-  MIN_READS_PER_CHECK,
-} from "@/shared/rank-tracking";
+import type {
+  PostedRankCheckTask,
+  RankCheckTaskInput,
+} from "@/server/lib/dataforseo";
+import { MAX_READS_PER_CHECK } from "@/shared/rank-tracking";
 import { pgStep } from "@/server/workflows/pgStep";
 import {
   COLLECT_STEP_CONFIG,
@@ -16,88 +16,137 @@ import {
 } from "@/server/workflows/rankCheckPaths";
 
 // ---------------------------------------------------------------------------
-// Further reads. Google serves some scraped searches a fake results page that
-// looks normal but leaves out or reshuffles sites that really rank, so one read
-// can't be trusted. Every keyword/device pair gets MIN_READS_PER_CHECK reads,
-// and up to MAX_READS_PER_CHECK while a read missed the site or the positions
-// disagree. Reads are billed like any other check, and the best position wins.
+// Second reads. Google serves some scraped searches a fake results page that
+// leaves out sites that really rank. DataForSEO replaces those pages
+// (resolve_poisoned_results), but a miss on a keyword that ranked before is
+// still the likeliest sign of one it didn't catch, so that pair is read once
+// more, as is a pair whose first read got no page back. The best position
+// wins.
 // ---------------------------------------------------------------------------
 
-/** Positions this close together count as the reads agreeing. */
-const READS_AGREE_WITHIN_POSITIONS = 2;
-
 /**
- * No new round of reads starts after this long. One round polls for up to an
- * hour, so a check ends in about two hours. Slow rounds get fewer reads, and a
- * first read DataForSEO delays past the window gets none.
+ * No second read starts after this long. One read polls for up to an hour, so
+ * a check ends in about two hours, and a first read DataForSEO delays past the
+ * window gets no second.
  */
 export const READ_WINDOW_MS = 60 * 60_000;
 
-interface ReadPair extends RankCheckTaskInput {
+/**
+ * What the reads of one keyword/device pair found. Steps return these in
+ * expandToTaskInputs order, without the keyword: a step's output is capped at
+ * 1 MiB, which the largest tracker's keyword text alone could fill.
+ */
+interface PairReads {
   /** One entry per read: the position, or null with no page or no site on it. */
   reads: Array<number | null>;
   /** Whether any read got a results page back. */
   answered: boolean;
 }
 
-function key(keywordId: string, device: string) {
-  return `${keywordId}:${device}`;
+function key(pair: { keywordId: string; device: string }) {
+  return `${pair.keywordId}:${pair.device}`;
 }
 
-function foundPositions(pair: ReadPair) {
-  return pair.reads.filter((position) => position !== null);
-}
-
-function bestPosition(pair: ReadPair): number | null {
-  const found = foundPositions(pair);
+function bestPosition(pair: PairReads): number | null {
+  const found = pair.reads.filter((position) => position !== null);
   return found.length > 0 ? Math.min(...found) : null;
 }
 
-function needsAnotherRead(pair: ReadPair): boolean {
-  if (pair.reads.length < MIN_READS_PER_CHECK) return true;
-  const found = foundPositions(pair);
-  if (found.length < pair.reads.length) return true;
-  return Math.max(...found) - Math.min(...found) > READS_AGREE_WITHIN_POSITIONS;
+/**
+ * Keywords that ranked in an earlier check (`rankedEarlier`, per task) or on
+ * either device in this run. A miss on one of these is suspect.
+ */
+function rankedKeywords(
+  tasks: RankCheckTaskInput[],
+  pairs: PairReads[],
+  rankedEarlier: boolean[],
+): Set<string> {
+  return new Set(
+    tasks.flatMap((task, index) =>
+      rankedEarlier[index] || bestPosition(pairs[index]) !== null
+        ? [task.keywordId]
+        : [],
+    ),
+  );
 }
 
-/** Every pair, with the first read's saved result. A pair with no row errored. */
-async function loadFirstReads(ctx: CheckContext): Promise<ReadPair[]> {
-  const snapshots = await RankTrackingRepository.getSnapshotsForRun(ctx.runId);
+function isSuspectMiss(pair: PairReads, keywordRanked: boolean): boolean {
+  return pair.answered && bestPosition(pair) === null && keywordRanked;
+}
+
+/**
+ * Every pair's first read, from its saved result. A pair with no row errored,
+ * unless its task is still `queued`: then it has no read yet.
+ */
+async function loadFirstReads(
+  runId: string,
+  tasks: RankCheckTaskInput[],
+  queued: Set<string>,
+): Promise<PairReads[]> {
+  const snapshots = await RankTrackingRepository.getSnapshotsForRun(runId);
   const saved = new Map(
-    snapshots.map((s) => [key(s.trackingKeywordId, s.device), s.position]),
+    snapshots.map((s) => [
+      key({ keywordId: s.trackingKeywordId, device: s.device }),
+      s.position,
+    ]),
   );
-  return expandToTaskInputs(ctx.keywords, ctx.devices).map((task) => {
-    const pairKey = key(task.keywordId, task.device);
+  return tasks.map((task) => {
+    const pairKey = key(task);
+    if (!saved.has(pairKey) && queued.has(pairKey)) {
+      return { reads: [], answered: false };
+    }
     return {
-      ...task,
       reads: [saved.get(pairKey) ?? null],
       answered: saved.has(pairKey),
     };
   });
 }
 
+/** Whether each task's keyword ranked in a completed earlier check. */
+async function loadRankedEarlier(
+  configId: string,
+  tasks: RankCheckTaskInput[],
+): Promise<boolean[]> {
+  // The run is still active, so completed runs are all earlier checks.
+  const earlier =
+    await RankTrackingRepository.getBestPositionsForKeywords(configId);
+  const ranked = new Set(
+    earlier.flatMap((s) => (s.position === null ? [] : [s.trackingKeywordId])),
+  );
+  return tasks.map((task) => ranked.has(task.keywordId));
+}
+
 /**
- * Add this round's result to each pair that was read, saving any position that
- * beats its best and the first answer for a pair that had none.
+ * Add this round's result to each pair that was `polled`, saving any position
+ * that beats its best and the first answer for a pair that had none. A pair
+ * whose task is still `queued` gets its read when the task is collected.
  */
 async function saveReads(
   runId: string,
-  pairs: ReadPair[],
-  collected: RankCheckResultWithDevice[],
-): Promise<ReadPair[]> {
-  const results = new Map(
-    collected.map((result) => [key(result.keywordId, result.device), result]),
-  );
+  tasks: RankCheckTaskInput[],
+  pairs: PairReads[],
+  {
+    polled,
+    queued,
+    collected,
+  }: {
+    polled: Set<string>;
+    queued: Set<string>;
+    collected: RankCheckResultWithDevice[];
+  },
+): Promise<PairReads[]> {
+  const results = new Map(collected.map((result) => [key(result), result]));
   const toSave: RankCheckResultWithDevice[] = [];
-  const updated = pairs.map((pair) => {
-    if (!needsAnotherRead(pair)) return pair;
-    const result = results.get(key(pair.keywordId, pair.device));
+  const updated = pairs.map((pair, index) => {
+    const pairKey = key(tasks[index]);
+    if (!polled.has(pairKey)) return pair;
+    const result = results.get(pairKey);
+    if (!result && queued.has(pairKey)) return pair;
     const position = result?.position ?? null;
     const best = bestPosition(pair);
     const isBetter = position !== null && (best === null || position < best);
     if (result && (isBetter || !pair.answered)) toSave.push(result);
     return {
-      ...pair,
       reads: [...pair.reads, position],
       answered: pair.answered || result !== undefined,
     };
@@ -115,78 +164,113 @@ async function saveReads(
  * other device in this run, so it reads as not checked and keeps its previous
  * position.
  */
-async function dropUnconfirmedMisses(
+async function dropSuspectMisses(
   runId: string,
-  configId: string,
-  pairs: ReadPair[],
+  tasks: RankCheckTaskInput[],
+  pairs: PairReads[],
+  rankedEarlier: boolean[],
 ) {
-  // The run is still active, so completed runs are all earlier checks.
-  const earlier =
-    await RankTrackingRepository.getBestPositionsForKeywords(configId);
-  const rankedKeywords = new Set([
-    ...earlier.flatMap((s) =>
-      s.position === null ? [] : [s.trackingKeywordId],
-    ),
-    ...pairs.flatMap((pair) =>
-      bestPosition(pair) === null ? [] : [pair.keywordId],
-    ),
-  ]);
-  const unconfirmed = pairs.filter(
-    (pair) => bestPosition(pair) === null && rankedKeywords.has(pair.keywordId),
+  const ranked = rankedKeywords(tasks, pairs, rankedEarlier);
+  const suspect = tasks.filter(
+    (task, index) =>
+      bestPosition(pairs[index]) === null && ranked.has(task.keywordId),
   );
-  if (unconfirmed.length === 0) return;
+  if (suspect.length === 0) return;
   await RankTrackingRepository.deleteNotFoundSnapshots(
-    unconfirmed.map((pair) => ({
+    suspect.map((task) => ({
       runId,
-      trackingKeywordId: pair.keywordId,
-      device: pair.device,
+      trackingKeywordId: task.keywordId,
+      device: task.device,
     })),
   );
 }
 
 /**
- * Read each pair again through the task queue until it has enough reads that
- * agree, it reaches MAX_READS_PER_CHECK, or `readsEndAt` passes. The clock is
- * read inside the steps, so a replay makes the same decision.
+ * Read a pair once more through the task queue when its first read got no
+ * page back or missed a keyword that ranked, as long as `readsEndAt` hasn't
+ * passed. The `firstReadStragglers` the first read left queued are collected
+ * alongside, and a pair never has two tasks queued. The clock is read inside
+ * the steps, so a replay makes the same decision. Reads are numbered across
+ * passes for step labels only; MAX_READS_PER_CHECK caps each pair's reads.
  */
 export async function retryRankChecks(
   step: WorkflowStep,
   ctx: CheckContext,
   configId: string,
   readsEndAt: number,
+  firstReadStragglers: PostedRankCheckTask[] = [],
 ): Promise<void> {
+  const tasks = expandToTaskInputs(ctx.keywords, ctx.devices);
+  let stragglers = firstReadStragglers;
   let { pairs, canReadAgain } = await pgStep(
     step,
     "find-reads",
     COLLECT_STEP_CONFIG,
     async () => ({
-      pairs: await loadFirstReads(ctx),
+      pairs: await loadFirstReads(
+        ctx.runId,
+        tasks,
+        new Set(firstReadStragglers.map(key)),
+      ),
       canReadAgain: Date.now() < readsEndAt,
     }),
   );
+  const rankedEarlier = await pgStep(
+    step,
+    "find-ranked-earlier",
+    COLLECT_STEP_CONFIG,
+    () => loadRankedEarlier(configId, tasks),
+  );
 
-  for (let read = 2; read <= MAX_READS_PER_CHECK && canReadAgain; read++) {
-    const toRead = pairs.filter(needsAnotherRead);
-    if (toRead.length === 0) break;
-    console.log(
-      `[rank-check] ${ctx.runId} read ${read}: ${toRead.length} check(s)`,
-    );
-    const label = `read-${read}-`;
-    const { collected } = await runQueuedTasks(step, ctx, toRead, label);
+  for (let read = 2; ; ) {
     const readPairs = pairs;
+    const carried = stragglers;
+    const waiting = new Set(carried.map(key));
+    const ranked = rankedKeywords(tasks, readPairs, rankedEarlier);
+    const toRead = canReadAgain
+      ? tasks.filter((task, index) => {
+          const pair = readPairs[index];
+          return (
+            !waiting.has(key(task)) &&
+            pair.reads.length < MAX_READS_PER_CHECK &&
+            (!pair.answered || isSuspectMiss(pair, ranked.has(task.keywordId)))
+          );
+        })
+      : [];
+    if (toRead.length === 0 && carried.length === 0) break;
+    console.log(
+      `[rank-check] ${ctx.runId} read ${read}: ${toRead.length} check(s), ${carried.length} still queued`,
+    );
+    // With nothing to post, this only waits for the first read's tasks still
+    // queued, so the next pass can give their pairs a second read: no label
+    // is used twice. Second reads don't move on without their stragglers, so
+    // the loop ends once every pair is read.
+    const isRead = toRead.length > 0;
+    const label = isRead ? `read-${read}-` : `read-${read}-queued-`;
+    const outcome = await runQueuedTasks(step, ctx, toRead, label, {
+      carried,
+    });
+    stragglers = outcome.stragglers;
+    const polled = new Set([...waiting, ...toRead.map(key)]);
+    const queued = new Set(stragglers.map(key));
     ({ pairs, canReadAgain } = await pgStep(
       step,
       `${label}save`,
       COLLECT_STEP_CONFIG,
       async () => ({
-        pairs: await saveReads(ctx.runId, readPairs, collected),
+        pairs: await saveReads(ctx.runId, tasks, readPairs, {
+          polled,
+          queued,
+          collected: outcome.collected,
+        }),
         canReadAgain: Date.now() < readsEndAt,
       }),
     ));
+    if (isRead) read++;
   }
 
   const finalPairs = pairs;
   await pgStep(step, "drop-unconfirmed-misses", COLLECT_STEP_CONFIG, () =>
-    dropUnconfirmedMisses(ctx.runId, configId, finalPairs),
+    dropSuspectMisses(ctx.runId, tasks, finalPairs, rankedEarlier),
   );
 }

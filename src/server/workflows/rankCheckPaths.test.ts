@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowStep } from "cloudflare:workers";
 import type { RankCheckTaskInput } from "@/server/lib/dataforseo";
 import { retryRankChecks } from "./rankCheckRetries";
@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   upsertSnapshots: vi.fn(),
   deleteNotFoundSnapshots: vi.fn(),
   fetchRankCheckTaskResult: vi.fn(),
-  rankCheckTaskPost: vi.fn(),
+  rankCheckTaskPost:
+    vi.fn<(input: { tasks: RankCheckTaskInput[] }) => Promise<unknown>>(),
 }));
 
 vi.mock(
@@ -74,9 +75,23 @@ function queuedResults(...positions: Array<number | null>) {
   }
 }
 
-function retry(ctx: ReturnType<typeof checkContext>, readsEndAt = Infinity) {
-  return retryRankChecks(step, ctx, "config_1", readsEndAt);
+function retry(
+  ctx: ReturnType<typeof checkContext>,
+  readsEndAt = Infinity,
+  firstReadStragglers: Array<RankCheckTaskInput & { taskId: string }> = [],
+) {
+  return retryRankChecks(
+    step,
+    ctx,
+    "config_1",
+    readsEndAt,
+    firstReadStragglers,
+  );
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   mocks.rankCheckTaskPost.mockImplementation(
@@ -102,37 +117,81 @@ beforeEach(() => {
 });
 
 describe("retryRankChecks", () => {
-  it("gives a keyword three reads even when the first looks fine, then stops once they agree", async () => {
-    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_new", 5)]);
-    queuedResults(4, 6);
+  it("reads a keyword its first read found only once", async () => {
+    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_0", 5)]);
 
-    await retry(checkContext(["kw_new"]));
+    await retry(checkContext(["kw_0"]));
 
-    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(2);
+    expect(mocks.rankCheckTaskPost).not.toHaveBeenCalled();
+  });
+
+  it("reads a miss once more when the keyword ranked before, keeping what that read finds", async () => {
+    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_0", null)]);
+    queuedResults(3);
+
+    await retry(checkContext(["kw_0"]));
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(1);
     expect(mocks.upsertSnapshots).toHaveBeenCalledExactlyOnceWith([
-      expect.objectContaining({ trackingKeywordId: "kw_new", position: 4 }),
+      expect.objectContaining({ trackingKeywordId: "kw_0", position: 3 }),
+    ]);
+    expect(mocks.deleteNotFoundSnapshots).not.toHaveBeenCalled();
+  });
+
+  it("doesn't read a miss again when the keyword never ranked", async () => {
+    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_never", null)]);
+
+    await retry(checkContext(["kw_never"]));
+
+    expect(mocks.rankCheckTaskPost).not.toHaveBeenCalled();
+    expect(mocks.deleteNotFoundSnapshots).not.toHaveBeenCalled();
+  });
+
+  it("reads a pair whose first read got no page, and saves its not found", async () => {
+    mocks.getSnapshotsForRun.mockResolvedValue([]);
+
+    await retry(checkContext(["kw_never"]));
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(1);
+    expect(mocks.upsertSnapshots).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({
+        trackingKeywordId: "kw_never",
+        position: null,
+      }),
     ]);
   });
 
-  it.each([
-    ["positions differ by more than two places", [3, 9, 8, 7, 6]],
-    ["a read misses the site", [null, 3, 5, 5, 5]],
-  ])(
-    "reads up to six times when %s, keeping the best position",
-    async (_label, laterReads) => {
-      mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_new", 5)]);
-      queuedResults(...laterReads);
+  it("never saves a not found for a keyword that ranked before", async () => {
+    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_0", null)]);
 
-      await retry(checkContext(["kw_new"]));
+    await retry(checkContext(["kw_0"]));
 
-      expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(5);
-      expect(mocks.upsertSnapshots).toHaveBeenCalledExactlyOnceWith([
-        expect.objectContaining({ position: 3 }),
-      ]);
-    },
-  );
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(1);
+    expect(mocks.upsertSnapshots).not.toHaveBeenCalled();
+    expect(mocks.deleteNotFoundSnapshots).toHaveBeenCalledExactlyOnceWith([
+      { runId: "run_1", trackingKeywordId: "kw_0", device: "desktop" },
+    ]);
+  });
 
-  it("starts no more reads once the read window has passed, and still drops misses", async () => {
+  it("reads a device's miss again and drops it when the keyword ranks on the other device", async () => {
+    mocks.getSnapshotsForRun.mockResolvedValue([
+      snapshot("kw_never", null),
+      { ...snapshot("kw_never", 3), device: "mobile" },
+    ]);
+
+    await retry(checkContext(["kw_never"], "both"));
+
+    expect(mocks.rankCheckTaskPost).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        tasks: [expect.objectContaining({ device: "desktop" })],
+      }),
+    );
+    expect(mocks.deleteNotFoundSnapshots).toHaveBeenCalledExactlyOnceWith([
+      { runId: "run_1", trackingKeywordId: "kw_never", device: "desktop" },
+    ]);
+  });
+
+  it("starts no second read once the read window has passed, and still drops misses", async () => {
     mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_0", null)]);
 
     await retry(checkContext(["kw_0"]), Date.now() - 1);
@@ -143,56 +202,41 @@ describe("retryRankChecks", () => {
     ]);
   });
 
-  it("saves a not found for a keyword that never ranked once a read answers", async () => {
-    // The first read errored, so there is no row yet.
+  it("gives a first-read straggler its second read once its task is collected", async () => {
+    // kw_never's first read errored; kw_0's is still queued.
     mocks.getSnapshotsForRun.mockResolvedValue([]);
+    const straggler = {
+      keyword: "keyword kw_0",
+      keywordId: "kw_0",
+      device: "desktop" as const,
+      taskId: "task_first_kw_0",
+    };
 
-    await retry(checkContext(["kw_never"]));
+    await retry(checkContext(["kw_0", "kw_never"]), Infinity, [straggler]);
 
-    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(5);
-    expect(mocks.upsertSnapshots).toHaveBeenCalledExactlyOnceWith([
-      expect.objectContaining({
-        trackingKeywordId: "kw_never",
-        position: null,
-      }),
-    ]);
-    expect(mocks.deleteNotFoundSnapshots).not.toHaveBeenCalled();
+    const posted = mocks.rankCheckTaskPost.mock.calls.map(([{ tasks }]) =>
+      tasks.map((task) => task.keywordId),
+    );
+    expect(posted).toEqual([["kw_never"], ["kw_0"]]);
   });
 
-  it("finds a new keyword on a later read after earlier ones miss", async () => {
-    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_new", null)]);
-    queuedResults(null, null, null, 3, null);
+  it("polls every task of a large read in each round, 25 a second", async () => {
+    // Every first read errored, so each pair gets a second.
+    mocks.getSnapshotsForRun.mockResolvedValue([]);
+    vi.useFakeTimers();
+    const startedAt = Date.now();
 
-    await retry(checkContext(["kw_new"]));
+    const done = retry(
+      checkContext(Array.from({ length: 600 }, (_, i) => `kw_${i + 1}`)),
+    );
+    await vi.runAllTimersAsync();
+    await done;
 
-    expect(mocks.upsertSnapshots).toHaveBeenCalledExactlyOnceWith([
-      expect.objectContaining({ trackingKeywordId: "kw_new", position: 3 }),
-    ]);
-    expect(mocks.deleteNotFoundSnapshots).not.toHaveBeenCalled();
-  });
-
-  it("never saves a not found for a keyword that ranked before", async () => {
-    mocks.getSnapshotsForRun.mockResolvedValue([snapshot("kw_0", null)]);
-
-    await retry(checkContext(["kw_0"]));
-
-    expect(mocks.rankCheckTaskPost).toHaveBeenCalledTimes(5);
-    expect(mocks.upsertSnapshots).not.toHaveBeenCalled();
-    expect(mocks.deleteNotFoundSnapshots).toHaveBeenCalledExactlyOnceWith([
-      { runId: "run_1", trackingKeywordId: "kw_0", device: "desktop" },
-    ]);
-  });
-
-  it("drops a device's miss when the keyword ranks on the other device in this run", async () => {
-    mocks.getSnapshotsForRun.mockResolvedValue([
-      snapshot("kw_never", null),
-      { ...snapshot("kw_never", 3), device: "mobile" },
-    ]);
-
-    await retry(checkContext(["kw_never"], "both"));
-
-    expect(mocks.deleteNotFoundSnapshots).toHaveBeenCalledExactlyOnceWith([
-      { runId: "run_1", trackingKeywordId: "kw_never", device: "desktop" },
+    // 24 batches of 25, a second apart.
+    expect(mocks.fetchRankCheckTaskResult).toHaveBeenCalledTimes(600);
+    expect(Date.now() - startedAt).toBe(24_000);
+    expect(vi.mocked(step.sleep).mock.calls).toEqual([
+      ["read-2-wait-0", "4 minutes"],
     ]);
   });
 });

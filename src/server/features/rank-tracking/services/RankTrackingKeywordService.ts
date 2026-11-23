@@ -1,19 +1,34 @@
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import type { rankTrackingKeywords } from "@/db/schema";
+import { getPaidPlanId } from "@/server/billing/subscription";
 import { AppError } from "@/server/lib/errors";
+import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import {
+  BASE_KEYWORDS_PER_CONFIG,
   devicesCount,
   estimateRankCheckCredits,
   estimateScheduledRankCheckCredits,
   isScheduledRankTrackingInterval,
+  keywordsPerConfigForPlan,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_READS_PER_CHECK,
   VALIDATED_CRAWLS_PER_PAIR,
 } from "@/shared/rank-tracking";
 
+/**
+ * How many keywords the organization's plan lets one tracker hold, for a
+ * tracker that would hold `keywordCount`. Every plan allows the base limit,
+ * so a tracker within it skips the plan lookup and gets the base limit back.
+ * Deployments without billing have no plans and get the highest limit.
+ */
+async function keywordLimit(organizationId: string, keywordCount: number) {
+  if (keywordCount <= BASE_KEYWORDS_PER_CONFIG) return BASE_KEYWORDS_PER_CONFIG;
+  if (!(await isHostedServerAuthMode())) return MAX_KEYWORDS_PER_CONFIG;
+  return keywordsPerConfigForPlan(await getPaidPlanId(organizationId));
+}
+
 async function addKeywords(
-  configId: string,
-  projectId: string,
+  tracker: { configId: string; projectId: string; organizationId: string },
   keywords: string[],
   approval:
     | { kind: "direct_user_action" }
@@ -25,23 +40,15 @@ async function addKeywords(
   // "nodex" are then two separately tracked (and separately billed) keywords.
   matchCase = false,
 ) {
+  const { configId, projectId, organizationId } = tracker;
   const config = await getValidatedConfig(configId, projectId);
   const existing = await RankTrackingRepository.getKeywordsForConfig(configId);
 
-  if (existing.length >= MAX_KEYWORDS_PER_CONFIG) {
-    throw new AppError(
-      "INTERNAL_ERROR",
-      `Maximum ${MAX_KEYWORDS_PER_CONFIG} keywords per domain. Currently tracking ${existing.length}.`,
-    );
-  }
-
   const existingKeywords = new Set(existing.map((kw) => kw.keyword));
-  const available = MAX_KEYWORDS_PER_CONFIG - existing.length;
   const seen = new Set<string>();
-  const rows: (typeof rankTrackingKeywords.$inferInsert)[] = [];
+  const newRows: (typeof rankTrackingKeywords.$inferInsert)[] = [];
 
   for (const raw of keywords) {
-    if (rows.length >= available) break;
     const trimmed = raw.trim();
     // Lowercase with the tracker's language: Turkish "İstanbul" and "KIRMIZI"
     // become "istanbul" and "kırmızı", not different words.
@@ -57,7 +64,7 @@ async function addKeywords(
       (matchCase || !existingKeywords.has(trimmed.toLowerCase()))
     ) {
       seen.add(normalized);
-      rows.push({
+      newRows.push({
         id: crypto.randomUUID(),
         configId,
         keyword: normalized,
@@ -65,6 +72,18 @@ async function addKeywords(
       });
     }
   }
+
+  // A tracker already over its limit (after a downgrade) keeps its keywords
+  // and its checks; it only takes no new ones.
+  const limit = await keywordLimit(
+    organizationId,
+    existing.length + newRows.length,
+  );
+  const rows = newRows.slice(0, Math.max(0, limit - existing.length));
+  const overLimit =
+    rows.length < newRows.length
+      ? { limit, notAdded: newRows.length - rows.length }
+      : undefined;
 
   const scheduleInterval = isScheduledRankTrackingInterval(
     config.scheduleInterval,
@@ -119,7 +138,7 @@ async function addKeywords(
     }
   }
 
-  return { added: addedIds.length, addedIds, scheduledEstimate };
+  return { added: addedIds.length, addedIds, scheduledEstimate, overLimit };
 }
 
 async function removeKeywords(
@@ -154,16 +173,21 @@ async function setKeywordsPinned(
 async function estimateCost(
   configId: string,
   projectId: string,
+  organizationId: string,
   additionalKeywords: readonly string[] = [],
   options: { validated?: boolean } = {},
 ) {
   const config = await getValidatedConfig(configId, projectId);
   const existing = await RankTrackingRepository.getKeywordsForConfig(configId);
   const existingKeywordCount = existing.length;
+  const limit = await keywordLimit(
+    organizationId,
+    existingKeywordCount + additionalKeywords.length,
+  );
   const keywords = [
     ...existing.map((kw) => kw.keyword),
     ...additionalKeywords,
-  ].slice(0, Math.max(existingKeywordCount, MAX_KEYWORDS_PER_CONFIG));
+  ].slice(0, Math.max(existingKeywordCount, limit));
   const keywordCount = keywords.length;
   // A validated run is approved at its worst case of VALIDATED_CRAWLS_PER_PAIR
   // crawls per pair (see rankCheckQueuedPath); a plain check at its most reads.

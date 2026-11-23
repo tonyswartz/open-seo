@@ -9,6 +9,11 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { GABE_TESTIMONIAL } from "@/components/campaign-pages";
 import { SIGNUP_URL, TESTIMONIALS } from "@/components/landing-page";
 import { MoneyBackGuarantee } from "@/components/money-back-guarantee";
+import {
+  hasTrustpilotReviews,
+  TrustpilotRating,
+  TrustpilotReviews,
+} from "@/components/trustpilot";
 import type { StartAngle } from "@/lib/start-angles";
 
 // The app's sign-up page reads `method`: Google goes straight to Google's
@@ -143,9 +148,10 @@ export function StartLandingPage({ angle }: { angle: StartAngle }) {
           {/* Recent sign-ups read as momentum. Kept by hand, so check it
               against last week's count when it's updated. */}
           <span>
-            <strong>7,000+</strong> people signed up last week
+            <strong>10,000+</strong> people signed up last week
           </span>
         </p>
+        <TrustpilotRating className="itc-start-rating" />
       </section>
 
       <section className="itc-start-section itc-start-steps">
@@ -167,28 +173,41 @@ export function StartLandingPage({ angle }: { angle: StartAngle }) {
         </div>
       </section>
 
-      <section className="itc-start-section itc-start-quotes">
+      <section
+        className={`itc-start-section itc-start-quotes${
+          hasTrustpilotReviews ? " itc-start-quotes-trustpilot" : ""
+        }`}
+      >
         <div className="itc-start-inner">
           <h2 className="itc-start-h3">What people say</h2>
-          <div className="itc-start-quote-list">
-            {QUOTES.map((t) => (
-              <figure key={t.name}>
-                <blockquote>&ldquo;{t.quote}&rdquo;</blockquote>
-                <figcaption>
-                  {t.avatarSrc ? (
-                    <img src={t.avatarSrc} alt="" width={32} height={32} />
-                  ) : null}
-                  <span>
-                    <strong>{t.name}</strong>
-                    <span className="itc-start-quote-role">
-                      {" "}
-                      · {t.role ?? t.handle}
+          {hasTrustpilotReviews ? (
+            <>
+              <p className="itc-start-quotes-rating">
+                <TrustpilotRating />
+              </p>
+              <TrustpilotReviews layout="grid" limit={3} />
+            </>
+          ) : (
+            <div className="itc-start-quote-list">
+              {QUOTES.map((t) => (
+                <figure key={t.name}>
+                  <blockquote>&ldquo;{t.quote}&rdquo;</blockquote>
+                  <figcaption>
+                    {t.avatarSrc ? (
+                      <img src={t.avatarSrc} alt="" width={32} height={32} />
+                    ) : null}
+                    <span>
+                      <strong>{t.name}</strong>
+                      <span className="itc-start-quote-role">
+                        {" "}
+                        · {t.role ?? t.handle}
+                      </span>
                     </span>
-                  </span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

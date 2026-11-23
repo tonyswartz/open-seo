@@ -477,14 +477,18 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
         } else {
           // Shown only if no keyword gets a result: a run that got some reports
           // the rest as not checked.
-          if (await runQueuedCheck(step, checkContext)) {
-            batchError = RANK_CHECK_DELAYED_ERROR;
-          }
+          const firstRead = await runQueuedCheck(
+            step,
+            checkContext,
+            prepareResult.readsEndAt,
+          );
+          if (firstRead.timedOut) batchError = RANK_CHECK_DELAYED_ERROR;
           await retryRankChecks(
             step,
             checkContext,
             configId,
             prepareResult.readsEndAt,
+            firstRead.stragglers,
           );
         }
       } catch (error) {

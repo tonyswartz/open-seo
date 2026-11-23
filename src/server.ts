@@ -3,6 +3,7 @@ import {
   defaultStreamHandler,
 } from "@tanstack/react-start/server";
 import { routeAgentRequest } from "agents";
+import { env as workerEnv } from "cloudflare:workers";
 import { everyApp } from "@every-app/sdk/server";
 import { serveEveryAppRequest } from "@/server/lib/gateway-attribution";
 import { resolveUserContextFromHeaders } from "@/middleware/ensure-user/resolve";
@@ -24,6 +25,7 @@ import {
 import { requestWithPublicOrigin } from "@/server/mcp/public-origin";
 import { MCP_ROUTE } from "@/server/mcp/context";
 import { withPgClient } from "@/db";
+import { ENFORCED_CSP, reportOnlyCsp } from "@/server/lib/csp";
 import { withDataforseoSlots } from "@/server/lib/dataforseo/request-slots";
 import {
   AUTUMN_WEBHOOK_PATH,
@@ -40,34 +42,51 @@ import { SEO_HISTORY_HTTP_PATH } from "@/shared/seo-history";
 import { runDailyGoogleIntegrationHealthProbe } from "@/server/features/google/services/dailyGoogleIntegrationHealthProbe";
 import { handleOperatorRequest } from "@/server/standalone/admin";
 import { handleImport, isLegacyImportActive } from "@/server/standalone/import";
+import { EVERY_APP_TRANSFER_PATH } from "@/server/features/every-app-transfer/protocol";
 import { hasOperatorSecret } from "@/server/standalone/operator-auth";
 
 const startHandler = createStartHandler(defaultStreamHandler);
 
-// The app ships no security response headers of its own, so any third-party
-// page can frame an app route and UI-redress a one-click action (delete a
-// project, change project settings, buy credits). `frame-ancestors 'self'` on
-// the app's own documents is the whole fix, and deliberately all of it: a
-// script-src policy would need a nonce for the inline bootstrap script in
-// __root.tsx plus allowances for Turnstile and PostHog, which is separate,
-// larger work.
-//
-// Only HTML documents, and only ones that carry no policy of their own, so a
-// route that sets its own stricter CSP keeps it (two CSP headers intersect, so
-// adding a second could only confuse things). Wrapping the handler rather than
-// one call site covers the OAuth-provider path too, which serves app documents
+// Security headers for everything the app serves, set here because wrapping
+// the handler covers the OAuth-provider path too, which serves app documents
 // through this same function.
+//
+// The Content-Security-Policy goes on HTML documents that carry no policy of
+// their own, so a route that sets its own stricter CSP keeps it (two CSP
+// headers intersect, so adding a second could only confuse things). What is
+// enforced is ENFORCED_CSP. OpenSEO Cloud also sends the full policy
+// report-only (csp.ts); the nonce it names reaches the document's inline
+// scripts through the router (router.tsx).
 async function appFetch(request: Request): Promise<Response> {
-  const response = await startHandler(request);
+  const cspNonce = crypto.randomUUID();
+  const response = await startHandler(request, { context: { cspNonce } });
+  // A WebSocket upgrade's response can't be rebuilt, and has no use for these.
+  if (response.status === 101) return response;
+  const headers = new Headers(response.headers);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // Only over https: a self-hosted instance on plain http has no TLS to pin.
+  if (new URL(request.url).protocol === "https:") {
+    headers.set("Strict-Transport-Security", "max-age=31536000");
+  }
   const contentType = response.headers.get("content-type") ?? "";
   if (
-    !contentType.startsWith("text/html") ||
-    response.headers.has("content-security-policy")
+    contentType.startsWith("text/html") &&
+    !headers.has("content-security-policy")
   ) {
-    return response;
+    headers.set("Content-Security-Policy", ENFORCED_CSP);
+    if (isHostedAuthMode(workerEnv.AUTH_MODE)) {
+      headers.set(
+        "Content-Security-Policy-Report-Only",
+        reportOnlyCsp({
+          nonce: cspNonce,
+          host: new URL(request.url).host,
+          posthogHost: workerEnv.POSTHOG_HOST,
+        }),
+      );
+    }
   }
-  const headers = new Headers(response.headers);
-  headers.set("Content-Security-Policy", "frame-ancestors 'self'");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -162,11 +181,18 @@ async function handleEveryAppRequest(
     return everyAppTools.fetch(request, env, ctx);
   }
   // everyApp() also drops any Set-Cookie on the way out.
-  return everyApp<Env>((verified, _env, _ctx, user) =>
-    serveEveryAppRequest(verified, user, () =>
+  return everyApp<Env>(async (verified, _env, _ctx, user) => {
+    // The one public route (everyapp.config.ts): a self-hosted install
+    // moving here, gated by the transfer code's secret, not a member.
+    if (new URL(verified.url).pathname === EVERY_APP_TRANSFER_PATH) {
+      const { EveryAppTransferReceiver } =
+        await import("@/server/features/every-app-transfer/EveryAppTransferReceiver");
+      return EveryAppTransferReceiver.handleTransferRequest(verified);
+    }
+    return serveEveryAppRequest(verified, user, () =>
       handleAppRequest(verified, env, ctx),
-    ),
-  ).fetch(request, env, ctx);
+    );
+  }).fetch(request, env, ctx);
 }
 
 function handleFetch(
@@ -276,6 +302,13 @@ export default {
   ) {
     // A legacy Docker import owns the database until it finishes.
     if (hasOperatorSecret() && (await isLegacyImportActive())) return;
+    // So does a move from a self-hosted install: a tracker that arrived
+    // before its keywords would run half a check.
+    if (getAuthMode(env.AUTH_MODE) === "everyapp") {
+      const { EveryAppTransferReceiver } =
+        await import("@/server/features/every-app-transfer/EveryAppTransferReceiver");
+      if (await EveryAppTransferReceiver.isTransferRunning()) return;
+    }
     if (controller.cron === MCP_OAUTH_PURGE_CRON) {
       const authMode = getAuthMode(env.AUTH_MODE);
       // Only the modes with their own accounts run the OAuth provider (and

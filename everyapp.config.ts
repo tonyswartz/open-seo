@@ -1,8 +1,8 @@
 /**
  * OpenSEO on an Every App gateway (AUTH_MODE=everyapp). The gateway signs
  * people in and decides who may open OpenSEO, serves its MCP tools on the
- * gateway's one connector, and holds the DataForSEO, Context and OpenRouter
- * keys, so a deploy needs no OpenSEO settings to open (its own two:
+ * gateway's one connector, and holds the DataForSEO (or treg), Context and
+ * OpenRouter keys, so a deploy needs no OpenSEO settings to open (its own two:
  * CRAWLER_ACCESS_SECRET, which the deploy generates, and OPENROUTER_MODEL,
  * an optional feature, below). See
  * docs/maintainers/every-app.md.
@@ -70,9 +70,18 @@ export default {
   // (integrationFetch). An approval covers the app; every call counts
   // against the install's organization (src/server/lib/gateway-attribution.ts).
   capabilities: {
+    // SEO data needs one of these two, so neither is required: each is an
+    // optional feature below, and without both every SEO data page says
+    // how to set one (src/server/lib/provider-access.ts).
     dataforseo: {
       access: "read",
       why: "Keyword, SERP, backlink, local business and AI answer data, including scheduled rank checks. The value is `login:password` from the DataForSEO dashboard, or its base64.",
+    },
+    // DataForSEO's calls bought from treg's prepaid balance, for a gateway
+    // without a DataForSEO account (src/server/lib/dataforseo/treg.ts).
+    treg: {
+      access: "read",
+      why: "The same SEO data from DataForSEO, bought per call from a treg balance, for a gateway without a DataForSEO key.",
     },
     // Audits run without it: the "Render JavaScript" option says an admin
     // sets it (src/server/lib/audit/rendering-policy.ts).
@@ -86,6 +95,12 @@ export default {
     // google/gatewayGoogle.ts). Google's own scopes, read only; the gateway
     // adds the identity scopes and refuses a token carrying more. Without
     // a Google client the Google cards say so.
+    // A move from a self-hosted OpenSEO matches each person there to the
+    // member with the same email.
+    members: {
+      access: "read",
+      why: "Moving a self-hosted OpenSEO here keeps each person's chats and work with the member who has the same email.",
+    },
     "google-workspace": {
       scopes: ["webmasters.readonly", "analytics.readonly"],
       why: "Search Console and GA4 reads for your sites, with the Google account you connect in OpenSEO.",
@@ -102,6 +117,22 @@ export default {
   ],
   // Optional, each all or nothing: OpenSEO opens without them.
   features: {
+    dataforseo: {
+      name: "DataForSEO",
+      why: "Keyword, SERP, backlink, local business and AI answer data, including scheduled rank checks. Set this or treg.",
+      steps: [
+        "Request API credentials at https://app.dataforseo.com/api-access",
+        "The value is your API login and password as `login:password`, or its base64.",
+      ],
+      capabilities: ["dataforseo"],
+    },
+    // Used only when the gateway has no DataForSEO key.
+    treg: {
+      name: "treg",
+      why: "The same SEO data without a DataForSEO account, bought per call from a prepaid treg balance. Set this or DataForSEO.",
+      steps: ["Create a team at https://treg.to and copy its API token."],
+      capabilities: ["treg"],
+    },
     // Audits run without it: the "Render JavaScript" option says an admin
     // sets it (src/server/lib/audit/rendering-policy.ts).
     rendering: {
@@ -139,13 +170,16 @@ export default {
   // Both Workers, from cloudflare.config.ts and vite-plugin-every-app.ts.
   build: "pnpm build:report-widgets && AUTH_MODE=everyapp pnpm exec vite build",
   dev: "pnpm build:report-widgets && AUTH_MODE=everyapp pnpm exec vite dev --host 127.0.0.1",
-  // Nothing reaches OpenSEO without a signed-in member: report sharing and
-  // the other unauthenticated routes are hosted-only, and the gateway's tool
-  // calls (`/__everyapp/tools/*`) carry their own gateway-signed tokens.
   // Every member opens OpenSEO once it is installed, like the other three
   // launch apps (OpenCRM, OpenAnalytics, Agentic Inbox): the documented
   // default for them. Without it a fresh install opens to owners and admins
   // only, and an admin grants the rest by hand.
   access: "everyone",
-  public: [],
+  // Everything else needs a signed-in member: report sharing and the other
+  // unauthenticated routes are hosted-only, and the gateway's tool calls
+  // (`/__everyapp/tools/*`) carry their own gateway-signed tokens. The one
+  // public route takes a move from a self-hosted OpenSEO and answers only to
+  // the secret of a transfer code an owner or admin made
+  // (src/server/features/every-app-transfer/).
+  public: [{ path: "/api/every-app-transfer", methods: ["POST"] }],
 } as const;

@@ -22,6 +22,9 @@ vi.mock(
   "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository",
   () => ({ GoogleAdsConnectionRepository: {} }),
 );
+vi.mock("@/server/features/reports/repositories/ReportRepository", () => ({
+  ReportRepository: {},
+}));
 vi.mock("@/server/features/audit/repositories/AuditRepository", () => ({
   AuditRepository: {
     getAuditsByProject: repository.audits,
