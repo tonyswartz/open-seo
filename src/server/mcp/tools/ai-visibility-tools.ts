@@ -169,7 +169,7 @@ export const completeAiResearchSetupTool = defineAiTool({
   openWorld: true,
   path: "research",
   description:
-    "Set up Prompt Research keywords for a project that has a saved website. Returns keywords, status, and review. Research uses OpenSEO credits: it sends project context to an external model and reads websites or searches for competitors when needed. An existing tracker, a running setup, or a setup awaiting review is returned without restarting research, and saved context and keywords are reused. When no tracker exists, saving the setup also creates three topics with five prompts each and turns on weekly paid AI checks, first due about a week later; no answer check starts immediately. For status=running, call again after about 20 seconds. For status=review, review the proposed setup with the user, then save it through save_project_website_setup, preserving saved competitors when review.preserveCompetitors=true.",
+    "Set up Prompt Research keywords for a project that has a saved website. Returns keywords, status, and review. Research uses OpenSEO credits: it sends project context to an external model and reads websites or searches for competitors when needed. An existing tracker, a running setup, or a setup awaiting review is returned without restarting research, and saved context and keywords are reused. When no tracker exists, saving the setup also creates three topics with five prompts each and turns on weekly paid AI checks, first due about a week later; no answer check starts immediately. For status=running, call again after about 20 seconds. For status=review, review the proposed setup with the user, then save it through save_project_website_setup, preserving saved competitors when review.preserveCompetitors=true. To change keywords that are already saved, use update_ai_research_keywords.",
   execute: (s, a, b) => s.startResearchSetup(a, b),
   summarize: (d) =>
     d.status === "ready"
@@ -263,7 +263,7 @@ export const estimateAiVisibilityCostTool = defineAiTool({
   output: aiCostOutput,
   readOnly: true,
   description:
-    "Estimate what AI visibility checks cost, without collecting answers: one scheduled check, a one-off check, and a month of a daily, weekly, or monthly schedule. Pass patch to price proposed settings, or promptIds to price only those prompts. costUsd prices each scheduled check; runNowCostUsd prices a one-off check, which collects live answers within minutes at a higher price. Uses no credits. To run a one-off check, pass runNowCostUsd to run_ai_visibility_check as maxCostUsd.",
+    "Estimate what AI visibility checks cost, without collecting answers: one scheduled check, a one-off check, and a month of a daily, weekly, or monthly schedule. Pass patch to price proposed settings, or promptIds to price only those prompts. costUsd prices each scheduled check; runNowCostUsd prices a one-off check, which collects live answers sooner at a higher price. Uses no credits. To run a one-off check, pass runNowCostUsd to run_ai_visibility_check as maxCostUsd.",
   execute: (s, a) => s.estimateCost(a),
   summarize: (d) =>
     `${d.observations} answers: $${d.costUsd.toFixed(4)} (${d.costCredits} credits) per scheduled check, $${d.runNowCostUsd.toFixed(4)} (${d.runNowCostCredits} credits) to run now. Estimate on the ${d.scheduleInterval} schedule: $${d.monthlyCostUsd.toFixed(2)}/month (${d.checksPerMonth} ${d.checksPerMonth === 1 ? "check" : "checks"}).${d.warnings.length ? ` Warnings: ${d.warnings.join("; ")}` : ""}`,
@@ -292,7 +292,7 @@ export const runAiVisibilityCheckTool = defineAiTool({
   readOnly: false,
   openWorld: true,
   description:
-    "Start a one-off paid AI visibility check now, leaving the schedule unchanged. It collects live answers, so results arrive within minutes. maxCostUsd is a spending ceiling: pass runNowCostUsd from estimate_ai_visibility_cost, and the check is refused if it now costs more. Only one check runs per project at a time. Returns a run immediately: follow it with get_ai_visibility_run, and never call this tool again to poll.",
+    "Start a one-off paid AI visibility check now, leaving the schedule unchanged. It collects live answers, about 15 a minute: a few prompts finish within minutes, and 300 prompts on six engines (1,800 answers) take about 2 hours. maxCostUsd is a spending ceiling: pass runNowCostUsd from estimate_ai_visibility_cost, and the check is refused if it now costs more. Only one check runs per project at a time. Returns a run immediately: follow it with get_ai_visibility_run, and never call this tool again to poll.",
   execute: (s, a, b) => s.runCheck(a, b),
   summarize: (d) =>
     `Run ${d.id}: ${d.status}, ${d.completed}/${d.expected} completed. ${runNextAction(d)}`,

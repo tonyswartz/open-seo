@@ -14,7 +14,7 @@ Related guides:
 - **Node 22.6 or newer** and **pnpm** (`corepack enable` sets it up).
 - **A Cloudflare account with R2 enabled.** Activating R2 requires a payment method on file, even within its free tier — if you have never used R2, open `R2` in the Cloudflare dashboard once.
 - **A workers.dev subdomain.** A new account has none until you open `Workers & Pages` in the Cloudflare dashboard once; without it the bootstrap below fails with "You need a workers.dev subdomain". The subdomain becomes part of your OpenSEO URL.
-- **A DataForSEO account** — see [`DATAFORSEO_API_KEY.md`](./DATAFORSEO_API_KEY.md).
+- **A DataForSEO account** (or a [treg token](./DATAFORSEO_API_KEY.md#no-dataforseo-account-use-treg)) — see [`DATAFORSEO_API_KEY.md`](./DATAFORSEO_API_KEY.md).
 
 ## 1) Clone your OpenSEO repo
 
@@ -45,7 +45,7 @@ pnpm alchemy cloudflare bootstrap                # deploys alchemy's state-store
 
 ## 3) Create `.env.selfhost`
 
-Copy the template and set `DATAFORSEO_API_KEY`; everything else is optional:
+Copy the template and set `DATAFORSEO_API_KEY` (or `TREG_API_TOKEN`); everything else is optional:
 
 ```bash
 cp deploy/.env.selfhost.example .env.selfhost
@@ -110,7 +110,7 @@ Deployments created before password accounts existed have no `AUTH_MODE` in `.en
 
 ## Workers Free plan limits
 
-A Cloudflare Workflow on the Workers Free plan can make 50 outgoing requests per run. Each site audit runs as one Workflow, so an audit stops loading pages after about 40 of them. AI visibility setup can fail the same way, with "Too many subrequests". The Workers Paid plan raises the limit to 10,000; see [Workflows limits](https://developers.cloudflare.com/workflows/reference/limits/). For full audits and AI visibility, use Workers Paid or [Docker](./SELF_HOSTING_DOCKER.md).
+A Cloudflare Workflow on the Workers Free plan can make 50 outgoing requests per run. Each site audit runs as one Workflow, so an audit stops loading pages after about 40 of them. AI visibility setup and checks can fail the same way, with "Too many subrequests". On Workers Paid, `pnpm deploy:selfhost` raises the limit to 1,000,000 requests per run; on Free, the deploy says so and keeps Cloudflare's default. See [Workflows limits](https://developers.cloudflare.com/workflows/reference/limits/). For full audits and AI visibility, use Workers Paid or [Docker](./SELF_HOSTING_DOCKER.md).
 
 ## Site audits
 

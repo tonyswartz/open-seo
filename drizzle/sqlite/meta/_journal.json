@@ -540,6 +540,20 @@
       "when": 1794544101554,
       "tag": "0076_stripe_projects_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1795027967479,
+      "tag": "0077_project_embeds",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1795118529545,
+      "tag": "0078_every_app_transfers",
+      "breakpoints": true
     }
   ]
 }

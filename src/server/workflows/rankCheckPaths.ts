@@ -205,8 +205,8 @@ export async function checkBatchLive(
 // ~5 minutes, so the first check waits 4 minutes and polls are frequent up to
 // 15 minutes, every 5 minutes up to 30 so slow rounds still leave time for more
 // reads inside READ_WINDOW_MS, then sparse up to an hour. Collecting a slow
-// task is free while re-posting it is billed again, so unfinished tasks are only
-// left for the next read after that. Cumulative waits: 4 / 6 / 8 / 10 / 12 / 15 /
+// task is free while re-posting it is billed again, so a read gives up on
+// unfinished tasks only after that. Cumulative waits: 4 / 6 / 8 / 10 / 12 / 15 /
 // 20 / 25 / 30 / 45 / 60 minutes.
 const QUEUED_POLL_INTERVALS: WorkflowSleepDuration[] = [
   "4 minutes",
@@ -234,8 +234,23 @@ const FIRST_READ_POLL_INTERVALS: WorkflowSleepDuration[] = [
 /** Concurrent task_get requests within a collect step. */
 const TASK_GET_CONCURRENCY = 25;
 
-/** Max task_get calls per collect round (bounds one round's fan-out). */
+// Every batch of TASK_GET_CONCURRENCY task_gets takes at least this long, so
+// one check sends at most 1,500 a minute however fast DataForSEO answers. The
+// scheduler's limit on checks in flight (scheduledRankChecks.ts) is sized on
+// that figure against DataForSEO's 10,000 requests a minute. Measured, a batch
+// takes about 1.2 seconds, so a tracker of 5,000 keywords on both devices
+// (10,000 tasks) is polled once in about 8 minutes.
+const TASK_GET_BATCH_MS = 1000;
+
+/** Max task_get calls per collect step. A poll round runs one step per chunk. */
 const TASK_GETS_PER_COLLECT = 500;
+
+// DataForSEO finishes nearly all of a read's tasks within minutes of each
+// other and a few much later. A first read that waited for those would hold up
+// a large tracker's second reads, so once this share or less of its tasks is
+// still queued the second read starts and those tasks are collected alongside
+// it. Below 50 tasks the share rounds to none.
+const STRAGGLER_SHARE = 0.02;
 
 // Collect steps may issue hundreds of task_get calls, so they get more room
 // than SINGLE_ATTEMPT_STEP_CONFIG's 2-minute timeout. Unlike the metered
@@ -254,6 +269,7 @@ export const COLLECT_STEP_CONFIG = {
 async function fetchQueuedRound(
   ctx: CheckContext,
   tasks: PostedRankCheckTask[],
+  paced: boolean,
 ): Promise<{
   completed: RankCheckResultWithDevice[];
   stillPending: PostedRankCheckTask[];
@@ -263,16 +279,19 @@ async function fetchQueuedRound(
 
   for (let i = 0; i < tasks.length; i += TASK_GET_CONCURRENCY) {
     const chunk = tasks.slice(i, i + TASK_GET_CONCURRENCY);
-    const settled = await Promise.allSettled(
-      chunk.map((task) =>
-        fetchRankCheckTaskResult({
-          taskId: task.taskId,
-          keywordId: task.keywordId,
-          keyword: task.keyword,
-          targetDomain: ctx.domain,
-        }),
+    const [settled] = await Promise.all([
+      Promise.allSettled(
+        chunk.map((task) =>
+          fetchRankCheckTaskResult({
+            taskId: task.taskId,
+            keywordId: task.keywordId,
+            keyword: task.keyword,
+            targetDomain: ctx.domain,
+          }),
+        ),
       ),
-    );
+      paced && new Promise((resolve) => setTimeout(resolve, TASK_GET_BATCH_MS)),
+    ]);
     settled.forEach((result, index) => {
       const task = chunk[index];
       if (result.status === "rejected") {
@@ -298,10 +317,12 @@ async function fetchQueuedRound(
 
 /**
  * Post tasks to DataForSEO's standard queue (~30% of live cost), one metered
- * step per 100, then poll task_get on `pollIntervals`. `onCollected` runs
- * inside each collect step with that round's results. A task that's rejected,
- * fails or never finishes gets no result. Returns every collected result, and
- * whether any task was still in DataForSEO's queue when polling ended.
+ * step per 100, then poll task_get on `pollIntervals`, along with the
+ * `carried` tasks an earlier read left queued. `onCollected` runs inside each
+ * collect step with that round's results. A task that's rejected or fails gets
+ * no result. While the clock is before `moveOnUntil`, polling ends once only
+ * stragglers are left and returns them to carry into the next read. Polling
+ * that runs out of intervals gives up on what is left: `timedOut`.
  */
 export async function runQueuedTasks(
   step: WorkflowStep,
@@ -311,14 +332,22 @@ export async function runQueuedTasks(
   {
     onCollected,
     pollIntervals = QUEUED_POLL_INTERVALS,
+    carried = [],
+    moveOnUntil,
   }: {
     onCollected?: (results: RankCheckResultWithDevice[]) => Promise<void>;
     pollIntervals?: WorkflowSleepDuration[];
+    carried?: PostedRankCheckTask[];
+    moveOnUntil?: number;
   } = {},
-): Promise<{ collected: RankCheckResultWithDevice[]; timedOut: boolean }> {
+): Promise<{
+  collected: RankCheckResultWithDevice[];
+  stragglers: PostedRankCheckTask[];
+  timedOut: boolean;
+}> {
   // A failed post must not abort the run: earlier chunks were already
   // charged at DataForSEO, so their results have to be collected.
-  let pending: PostedRankCheckTask[] = [];
+  let pending = [...carried];
   for (let i = 0; i < tasks.length; i += MAX_TASKS_PER_POST) {
     const chunk = tasks.slice(i, i + MAX_TASKS_PER_POST);
     const postLabel = `${label}post-tasks-${Math.floor(i / MAX_TASKS_PER_POST)}`;
@@ -339,8 +368,9 @@ export async function runQueuedTasks(
     }
   }
   const collected: RankCheckResultWithDevice[] = [];
+  const fewEnoughToCarry = Math.floor(pending.length * STRAGGLER_SHARE);
 
-  // A collect failure (past its retries) leaves that round's tasks pending for
+  // A collect failure (past its retries) leaves that step's tasks pending for
   // the next round instead of failing the run.
   for (
     let round = 0;
@@ -349,46 +379,69 @@ export async function runQueuedTasks(
   ) {
     await step.sleep(`${label}wait-${round}`, pollIntervals[round]);
 
-    // Cap task_gets per round so one collect step stays well inside the
-    // per-invocation subrequest limit at the 1000-keyword config ceiling.
-    const batch = pending.slice(0, TASK_GETS_PER_COLLECT);
-    const overflow = pending.slice(TASK_GETS_PER_COLLECT);
-    try {
-      // Results come back as the step's output, so a replay sees them too.
-      const outcome = await pgStep(
-        step,
-        `${label}collect-${round}`,
-        COLLECT_STEP_CONFIG,
-        async () => {
-          const fetched = await fetchQueuedRound(ctx, batch);
-          if (onCollected && fetched.completed.length > 0) {
-            await onCollected(fetched.completed);
-          }
-          return fetched;
-        },
-      );
-      collected.push(...outcome.completed);
-      pending = [...outcome.stillPending, ...overflow];
-    } catch (error) {
-      console.warn(
-        `[rank-check] ${ctx.runId} ${label}collect-${round} failed:`,
-        error,
-      );
+    // One step per TASK_GETS_PER_COLLECT tasks keeps each step's task_gets
+    // and its output small. Every pending task is polled each round, oldest
+    // first: a task left unpolled when polling ends is read again and billed
+    // again.
+    const paced = pending.length > TASK_GET_CONCURRENCY;
+    const stillPending: PostedRankCheckTask[] = [];
+    let canMoveOn = false;
+    for (let i = 0; i < pending.length; i += TASK_GETS_PER_COLLECT) {
+      const batch = pending.slice(i, i + TASK_GETS_PER_COLLECT);
+      // The first chunk keeps the name a round's only step had, so a run in
+      // flight across a deploy replays its finished steps.
+      const chunk = i / TASK_GETS_PER_COLLECT;
+      const collectLabel = `${label}collect-${round}${chunk > 0 ? `-${chunk}` : ""}`;
+      try {
+        // Results come back as the step's output, so a replay sees them too,
+        // and so does the clock reading that decides whether to move on.
+        const outcome = await pgStep(
+          step,
+          collectLabel,
+          COLLECT_STEP_CONFIG,
+          async () => {
+            const fetched = await fetchQueuedRound(ctx, batch, paced);
+            if (onCollected && fetched.completed.length > 0) {
+              await onCollected(fetched.completed);
+            }
+            return {
+              ...fetched,
+              canMoveOn: moveOnUntil !== undefined && Date.now() < moveOnUntil,
+            };
+          },
+        );
+        collected.push(...outcome.completed);
+        stillPending.push(...outcome.stillPending);
+        canMoveOn = outcome.canMoveOn;
+      } catch (error) {
+        console.warn(
+          `[rank-check] ${ctx.runId} ${collectLabel} failed:`,
+          error,
+        );
+        stillPending.push(...batch);
+        canMoveOn = false;
+      }
+    }
+    pending = stillPending;
+    if (canMoveOn && pending.length > 0 && pending.length <= fewEnoughToCarry) {
+      return { collected, stragglers: pending, timedOut: false };
     }
   }
-  return { collected, timedOut: pending.length > 0 };
+  return { collected, stragglers: [], timedOut: pending.length > 0 };
 }
 
 /**
  * Read every keyword/device pair once through the task queue, writing snapshots
  * as tasks complete. Billing happens at task_post. Further reads are made by
- * retryRankChecks. Returns true when some tasks never left DataForSEO's queue.
+ * retryRankChecks, which also collects the `stragglers` this read left queued.
+ * `timedOut` is true when some tasks never left DataForSEO's queue.
  */
 export async function runQueuedCheck(
   step: WorkflowStep,
   ctx: CheckContext,
-): Promise<boolean> {
-  const { timedOut } = await runQueuedTasks(
+  readsEndAt: number,
+): Promise<{ stragglers: PostedRankCheckTask[]; timedOut: boolean }> {
+  const { stragglers, timedOut } = await runQueuedTasks(
     step,
     ctx,
     expandToTaskInputs(ctx.keywords, ctx.devices),
@@ -408,7 +461,8 @@ export async function runQueuedCheck(
         });
       },
       pollIntervals: FIRST_READ_POLL_INTERVALS,
+      moveOnUntil: readsEndAt,
     },
   );
-  return timedOut;
+  return { stragglers, timedOut };
 }

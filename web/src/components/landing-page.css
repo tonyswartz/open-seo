@@ -413,6 +413,13 @@
   text-align: center;
   white-space: nowrap;
 }
+.itc-testimonials-rating {
+  margin: 12px 0 32px;
+  text-align: center;
+}
+.itc-hero-rating {
+  margin-top: 20px;
+}
 .itc-quote-mark {
   color: var(--q-mark);
   font-size: 48px;
@@ -1270,6 +1277,11 @@ body:has(.itc-campaign) {
 .itc-start-proof strong {
   font-weight: 600;
 }
+/* Sits close under the sign-up line, so the two read as one proof block. */
+.itc-start-rating {
+  justify-self: center;
+  margin-top: -8px;
+}
 .itc-start-avatars {
   display: inline-flex;
 }
@@ -1365,6 +1377,17 @@ body:has(.itc-campaign) {
   padding: 36px 0 40px;
   background: var(--ink);
   color: #ffffff;
+}
+.itc-start-quotes-trustpilot {
+  background: var(--q-bg);
+  color: var(--q-text);
+}
+.itc-start-quotes-trustpilot .itc-start-h3 {
+  text-align: center;
+}
+.itc-start-quotes-rating {
+  margin: 10px 0 24px;
+  text-align: center;
 }
 .itc-start-quote-list {
   margin-top: 16px;
@@ -1564,8 +1587,10 @@ html[data-privacy-panel] .itc-start-sticky {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     /* The outer rows soak up the difference, so the shorter side centers on
        the taller one. */
-    grid-template-rows: 1fr auto auto auto 1fr;
-    grid-template-areas: ". card" "copy card" "cta card" "proof card" ". card";
+    grid-template-rows: 1fr auto auto auto auto 1fr;
+    grid-template-areas:
+      ". card" "copy card" "cta card" "proof card" "rating card"
+      ". card";
     column-gap: 56px;
     row-gap: 24px;
   }
@@ -1623,6 +1648,10 @@ html[data-privacy-panel] .itc-start-sticky {
     justify-content: flex-start;
     font-size: 14px;
   }
+  .itc-start-rating {
+    grid-area: rating;
+    justify-self: start;
+  }
   .itc-start-section,
   .itc-start-steps,
   .itc-start-quotes,
@@ -1643,6 +1672,9 @@ html[data-privacy-panel] .itc-start-sticky {
     margin-top: 32px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 32px;
+  }
+  .itc-start-quotes-rating {
+    margin: 12px 0 32px;
   }
   .itc-start-quote-list {
     margin-top: 24px;

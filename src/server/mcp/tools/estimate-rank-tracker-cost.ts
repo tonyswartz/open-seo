@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_KEYWORDS_PER_CONFIG } from "@/shared/rank-tracking";
 import { RankTrackingService } from "@/server/features/rank-tracking/services/RankTrackingService";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { mcpResponse } from "@/server/mcp/formatters";
@@ -16,14 +17,14 @@ const inputSchema = {
     .number()
     .int()
     .min(0)
-    .max(1000)
+    .max(MAX_KEYWORDS_PER_CONFIG)
     .optional()
     .describe(
       "Number of keywords you plan to add, priced as plain keywords. Prefer additionalKeywords when you know them.",
     ),
   additionalKeywords: z
     .array(z.string())
-    .max(1000)
+    .max(MAX_KEYWORDS_PER_CONFIG)
     .optional()
     .describe(
       "Keywords you plan to add. Include these before adding to a scheduled tracker so the response projects its recurring per-check and monthly cost; keywords with search operators such as site: cost 5x. Overrides additionalKeywordCount.",
@@ -43,7 +44,7 @@ export const estimateRankTrackerCostTool = {
   config: {
     title: "Estimate rank tracker cost",
     description:
-      "Estimate what a rank tracker check costs, without spending credits or starting a check. The estimate is the most a check can cost: every keyword and device gets 3 to 6 reads, and most checks use nearly all of them. It covers one run_rank_tracker check. Pass validated: true for the worst-case figure of a validated check, priced at six crawls per SERP check. For a scheduled tracker, the response adds the per-check and approximate monthly cost. Pass additionalKeywords to price the tracker after adding keywords. Pass the estimate the user approves as maxCostCredits to run_rank_tracker, or as maxEstimatedScheduledCheckCredits to add_rank_tracking_keywords.",
+      "Estimate what a rank tracker check costs, without spending credits or starting a check. The estimate is the most a check can cost: two reads of every keyword and device. Most get one read, so a check usually costs a little over half the estimate. It covers one run_rank_tracker check. Pass validated: true for the worst-case figure of a validated check, priced at six crawls per SERP check. For a scheduled tracker, the response adds the per-check and approximate monthly cost. Pass additionalKeywords to price the tracker after adding keywords. Pass the estimate the user approves as maxCostCredits to run_rank_tracker, or as maxEstimatedScheduledCheckCredits to add_rank_tracking_keywords.",
     inputSchema,
     outputSchema: z
       .object({
@@ -80,6 +81,7 @@ export const estimateRankTrackerCostTool = {
     const estimate = await RankTrackingService.estimateCost(
       args.trackerId,
       args.projectId,
+      context.billing.organizationId,
       // A bare count has no keyword text, so it prices as plain keywords.
       args.additionalKeywords ??
         Array<string>(args.additionalKeywordCount ?? 0).fill(""),
